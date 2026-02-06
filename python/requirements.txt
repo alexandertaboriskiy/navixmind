@@ -1,0 +1,24 @@
+# Core
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# Media/Documents
+pypdf>=3.15.0
+reportlab>=4.0.0
+python-docx>=0.8.11
+Pillow>=10.0.0
+
+# Download
+yt-dlp>=2023.12.0
+
+# Data
+numpy>=1.24.0
+
+# Utilities
+python-dateutil>=2.8.0
+urllib3>=2.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0

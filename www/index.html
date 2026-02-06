@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NavixMind</title>
+    <meta name="description" content="AI agent for Android. Process videos, documents, and automate tasks with Claude AI.">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #0F0F12;
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .logo {
+            width: 80px;
+            height: 80px;
+            border-radius: 20px;
+            margin-bottom: 24px;
+        }
+        h1 {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .tagline {
+            color: #888;
+            margin-bottom: 40px;
+        }
+        .buttons {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        a {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 28px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: transform 0.2s, background 0.2s;
+        }
+        a:hover { transform: translateY(-2px); }
+        .play {
+            background: #6366F1;
+            color: #fff;
+        }
+        .play:hover { background: #818CF8; }
+        .github {
+            background: #1A1A1F;
+            color: #fff;
+            border: 1px solid #333;
+        }
+        .github:hover { background: #252529; }
+        footer {
+            position: fixed;
+            bottom: 24px;
+            display: flex;
+            gap: 20px;
+            font-size: 13px;
+        }
+        footer a {
+            padding: 0;
+            color: #555;
+            background: none;
+            border: none;
+        }
+        footer a:hover { color: #888; transform: none; }
+    </style>
+</head>
+<body>
+    <img src="favicon.png" alt="NavixMind" class="logo">
+    <h1>NavixMind</h1>
+    <p class="tagline">AI agent for Android</p>
+    <div class="buttons">
+        <a href="https://play.google.com/store/apps/details?id=ai.navixmind" class="play">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 0 1 0 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/></svg>
+            Google Play
+        </a>
+        <a href="https://github.com/alexandertaboriskiy/navixmind" class="github">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+            GitHub
+        </a>
+    </div>
+    <footer>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/terms.html">Terms</a>
+        <a href="/impressum.html">Impressum</a>
+    </footer>
+</body>
+</html>

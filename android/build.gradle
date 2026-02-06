@@ -1,0 +1,64 @@
+buildscript {
+    ext.kotlin_version = '1.9.20'
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://chaquo.com/maven" }
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.4'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath 'com.google.gms:google-services:4.4.0'
+        classpath 'com.google.firebase:firebase-crashlytics-gradle:2.9.9'
+        classpath "com.chaquo.python:gradle:16.0.0"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = '../build'
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(':app')
+
+    // Fix for older plugins that don't have namespace
+    project.plugins.withId("com.android.library") {
+        project.android {
+            if (namespace == null) {
+                namespace = project.group ?: "com.${project.name.replace('-', '_').replace('.', '_')}"
+            }
+            // Force compileSdk for lStar compatibility
+            compileSdk 35
+        }
+    }
+
+    // Force AndroidX core version for lStar attribute compatibility
+    project.configurations.all {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'androidx.core' && details.requested.name == 'core') {
+                details.useVersion '1.12.0'
+            }
+        }
+    }
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
+
+// Disable resource verification for libraries with lStar issues
+gradle.taskGraph.whenReady { taskGraph ->
+    taskGraph.allTasks.findAll { task ->
+        task.name.contains('verifyReleaseResources')
+    }.each { task ->
+        task.enabled = false
+    }
+}

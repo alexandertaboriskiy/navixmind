@@ -1,0 +1,6 @@
+# Copy this file to key.properties and fill in your values.
+# DO NOT commit key.properties — it contains secrets.
+storePassword=YOUR_STORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=navixmind
+storeFile=navixmind-release.jks

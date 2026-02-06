@@ -1,0 +1,1 @@
+"""NavixMind Python tests"""

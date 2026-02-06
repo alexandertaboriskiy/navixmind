@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - NavixMind</title>
+    <link rel="icon" type="image/x-icon" href="favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0F0F12;
+            --bg-secondary: #1A1A1F;
+            --text-primary: #FFFFFF;
+            --text-secondary: #A0A0A8;
+            --accent: #6366F1;
+            --border: #2A2A30;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+        }
+        .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+        header {
+            padding: 24px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent) 0%, #8B5CF6 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 18px;
+        }
+        .logo-text { font-weight: 700; font-size: 20px; }
+        main { padding: 60px 0; }
+        h1 { font-size: 36px; font-weight: 700; margin-bottom: 8px; }
+        .last-updated { color: var(--text-secondary); font-size: 14px; margin-bottom: 40px; }
+        h2 { font-size: 22px; font-weight: 600; margin: 40px 0 16px; }
+        p { color: var(--text-secondary); margin-bottom: 16px; }
+        ul { color: var(--text-secondary); margin-left: 24px; margin-bottom: 16px; }
+        li { margin-bottom: 8px; }
+        a { color: var(--accent); }
+        footer {
+            padding: 40px 0;
+            border-top: 1px solid var(--border);
+            text-align: center;
+        }
+        footer a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin: 0 12px;
+            font-size: 14px;
+        }
+        footer a:hover { color: var(--text-primary); }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <a href="/" class="logo">
+                <div class="logo-icon">N</div>
+                <span class="logo-text">NavixMind</span>
+            </a>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <h1>Privacy Policy</h1>
+            <p class="last-updated">Last updated: February 6, 2025</p>
+
+            <p>NavixMind ("we", "our", or "the app") is committed to protecting your privacy. This Privacy Policy explains how we handle information when you use our Android application.</p>
+
+            <h2>Information Collection</h2>
+            <p>NavixMind is designed with privacy as a core principle:</p>
+            <ul>
+                <li>We do not collect personal information</li>
+                <li>We do not track your usage or behavior</li>
+                <li>We do not store your data on our servers</li>
+                <li>We may use anonymous analytics to improve our services</li>
+                <li>The app collects anonymous crash reports to improve stability</li>
+            </ul>
+
+            <h2>Your Data</h2>
+            <p>Your API key, conversation history, settings, and processed files are stored on your device.</p>
+
+            <h2>Third-Party Services</h2>
+            <p>NavixMind connects to the following third-party services when you use certain features:</p>
+            <ul>
+                <li><strong>Anthropic API:</strong> When you send messages, they are transmitted to Anthropic's Claude API for processing. Your API key and message content are sent directly to Anthropic. Please review <a href="https://www.anthropic.com/privacy" target="_blank">Anthropic's Privacy Policy</a>.</li>
+                <li><strong>Google APIs:</strong> If you connect your Google account, NavixMind accesses your Google Calendar and Gmail through Google's official APIs. This requires your explicit authorization. Please review <a href="https://policies.google.com/privacy" target="_blank">Google's Privacy Policy</a>.</li>
+            </ul>
+
+            <h2>Permissions</h2>
+            <p>NavixMind requests the following Android permissions:</p>
+            <ul>
+                <li><strong>Camera:</strong> To capture photos and scan documents</li>
+                <li><strong>Microphone:</strong> For voice input</li>
+                <li><strong>Storage:</strong> To read and save files you select</li>
+                <li><strong>Internet:</strong> To communicate with the Claude API</li>
+            </ul>
+            <p>All permissions are requested only when needed and can be revoked at any time through Android settings.</p>
+
+            <h2>Open Source</h2>
+            <p>NavixMind is open source. You can review the source code at <a href="https://github.com/alexandertaboriskiy/navixmind" target="_blank">github.com/alexandertaboriskiy/navixmind</a>.</p>
+
+            <h2>Children's Privacy</h2>
+            <p>NavixMind is not intended for children under 13. We do not knowingly collect information from children.</p>
+
+            <h2>Changes to This Policy</h2>
+            <p>We may update this Privacy Policy from time to time. Changes will be posted on this page with an updated revision date.</p>
+
+            <h2>Contact</h2>
+            <p>If you have questions about this Privacy Policy, contact us at <a href="mailto:support@navixmind.ai">support@navixmind.ai</a>.</p>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <a href="/">Home</a>
+            <a href="/privacy.html">Privacy Policy</a>
+            <a href="/terms.html">Terms of Service</a>
+            <a href="/impressum.html">Impressum</a>
+        </div>
+    </footer>
+</body>
+</html>

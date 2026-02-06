@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Impressum - NavixMind</title>
+    <link rel="icon" type="image/x-icon" href="favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0F0F12;
+            --bg-secondary: #1A1A1F;
+            --text-primary: #FFFFFF;
+            --text-secondary: #A0A0A8;
+            --accent: #6366F1;
+            --border: #2A2A30;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+        }
+        .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+        header {
+            padding: 24px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent) 0%, #8B5CF6 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 18px;
+        }
+        .logo-text { font-weight: 700; font-size: 20px; }
+        main { padding: 60px 0; }
+        h1 { font-size: 36px; font-weight: 700; margin-bottom: 40px; }
+        h2 { font-size: 22px; font-weight: 600; margin: 40px 0 16px; }
+        h2:first-of-type { margin-top: 0; }
+        p { color: var(--text-secondary); margin-bottom: 16px; }
+        a { color: var(--accent); }
+        .info-block {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .info-block p { margin-bottom: 8px; }
+        .info-block p:last-child { margin-bottom: 0; }
+        .placeholder {
+            color: var(--accent);
+            font-style: italic;
+        }
+        footer {
+            padding: 40px 0;
+            border-top: 1px solid var(--border);
+            text-align: center;
+        }
+        footer a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin: 0 12px;
+            font-size: 14px;
+        }
+        footer a:hover { color: var(--text-primary); }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <a href="/" class="logo">
+                <div class="logo-icon">N</div>
+                <span class="logo-text">NavixMind</span>
+            </a>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <h1>Impressum</h1>
+
+            <p>Information according to Swiss law</p>
+
+            <h2>Responsible for Content</h2>
+            <div class="info-block">
+                <p><strong>NavixMind</strong></p>
+                <p>Zurich, Switzerland</p>
+            </div>
+
+            <h2>Contact</h2>
+            <div class="info-block">
+                <p>Email: <a href="mailto:support@navixmind.ai">support@navixmind.ai</a></p>
+                <p>GitHub: <a href="https://github.com/alexandertaboriskiy/navixmind" target="_blank">github.com/alexandertaboriskiy/navixmind</a></p>
+            </div>
+
+            <h2>Liability for Content</h2>
+            <p>We are responsible for our own content on these pages according to general laws. We are not obligated to monitor transmitted or stored third-party information or to investigate circumstances that indicate illegal activity.</p>
+            <p>Obligations to remove or block the use of information under general law remain unaffected. However, liability in this regard is only possible from the time of knowledge of a specific infringement. Upon becoming aware of legal violations, we will remove such content immediately.</p>
+
+            <h2>Liability for Links</h2>
+            <p>Our offer contains links to external websites of third parties, on whose contents we have no influence. Therefore, we cannot assume any liability for these external contents. The respective provider or operator of the pages is always responsible for the content of the linked pages. The linked pages were checked for possible legal violations at the time of linking. Illegal contents were not recognizable at the time of linking.</p>
+            <p>A permanent content control of the linked pages is not reasonable without concrete evidence of a violation of the law. Upon becoming aware of legal violations, we will remove such links immediately.</p>
+
+            <h2>Copyright</h2>
+            <p>NavixMind is open source software released under the Apache 2.0 License. The source code is available at <a href="https://github.com/alexandertaboriskiy/navixmind" target="_blank">github.com/alexandertaboriskiy/navixmind</a>.</p>
+
+            <h2>Dispute Resolution</h2>
+            <p>The European Commission provides a platform for online dispute resolution (OS): <a href="https://ec.europa.eu/consumers/odr" target="_blank">https://ec.europa.eu/consumers/odr</a></p>
+            <p>We are not willing or obliged to participate in dispute resolution proceedings before a consumer arbitration board.</p>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <a href="/">Home</a>
+            <a href="/privacy.html">Privacy Policy</a>
+            <a href="/terms.html">Terms of Service</a>
+            <a href="/impressum.html">Impressum</a>
+        </div>
+    </footer>
+</body>
+</html>

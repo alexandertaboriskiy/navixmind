@@ -1,0 +1,153 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.chaquo.python"
+    id "com.google.gms.google-services"
+    id "com.google.firebase.crashlytics"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withReader('UTF-8') { reader ->
+        keystoreProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
+if (flutterVersionCode == null) {
+    flutterVersionCode = '1'
+}
+
+def flutterVersionName = localProperties.getProperty('flutter.versionName')
+if (flutterVersionName == null) {
+    flutterVersionName = '1.0'
+}
+
+android {
+    namespace "ai.navixmind"
+    compileSdk 35
+    ndkVersion "25.1.8937393"
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    defaultConfig {
+        applicationId "ai.navixmind"
+        minSdk 24
+        targetSdk 34
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
+
+        ndk {
+            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"
+        }
+
+        // Chaquopy Python configuration
+        python {
+            version "3.11"
+
+            pip {
+                // Core
+                install "requests>=2.31.0"
+                install "beautifulsoup4>=4.12.0"
+                install "lxml>=4.9.0"
+
+                // Media/Documents
+                install "pypdf>=3.15.0"
+                install "reportlab>=4.0.0"
+                install "python-docx>=0.8.11"
+                install "Pillow>=10.0.0"
+
+                // Download
+                install "yt-dlp>=2023.12.0"
+
+                // Data
+                install "numpy>=1.24.0"
+
+                // Utilities
+                install "python-dateutil>=2.8.0"
+                install "urllib3>=2.0.0"
+            }
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (keystoreProperties.containsKey('storeFile')) {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            buildConfigField "boolean", "NAVIXMIND_DEBUG", "true"
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            buildConfigField "boolean", "NAVIXMIND_DEBUG", "false"
+            signingConfig keystoreProperties.containsKey('storeFile') ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    bundle {
+        language {
+            enableSplit = true
+        }
+        density {
+            enableSplit = true
+        }
+        abi {
+            enableSplit = true  // CRITICAL - reduces download by ~40%
+        }
+    }
+}
+
+// Chaquopy source sets - include the navixmind Python package
+chaquopy {
+    sourceSets {
+        getByName("main") {
+            srcDir("../../python")
+        }
+    }
+}
+
+flutter {
+    source '../..'
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+    // Required for lStar attribute compatibility
+    implementation "androidx.core:core-ktx:1.12.0"
+}
