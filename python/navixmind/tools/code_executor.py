@@ -15,12 +15,16 @@ Security measures:
 
 import ast
 import io
+import os as _os
 import sys
 import traceback
 import threading
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Any, Dict, List, Optional, Tuple
 from functools import wraps
+
+# Set non-interactive matplotlib backend before anything imports it
+_os.environ['MPLBACKEND'] = 'Agg'
 
 from ..bridge import ToolError
 
@@ -86,6 +90,20 @@ SAFE_MODULES = {
     'numpy',
     'dateutil',
     'dateutil.parser',
+
+    # Data analysis
+    'pandas',
+
+    # Plotting
+    'matplotlib',
+    'matplotlib.pyplot',
+    'matplotlib.figure',
+    'matplotlib.colors',
+    'matplotlib.cm',
+    'matplotlib.ticker',
+    'matplotlib.dates',
+    'matplotlib.patches',
+
 }
 
 # Explicitly blocked modules
@@ -238,20 +256,33 @@ class SafeBuiltins:
     # Class variable to store allowed paths
     _allowed_paths: List[str] = []
 
+    # Class variable to store writable output directory
+    _output_dir: str = ''
+
     @classmethod
     def set_allowed_paths(cls, paths: List[str]):
         """Set the list of file paths that can be read."""
         cls._allowed_paths = [str(p) for p in paths]
 
     @classmethod
+    def set_output_dir(cls, path: str):
+        """Set the output directory where files can be written."""
+        cls._output_dir = str(path) if path else ''
+
+    @classmethod
     def _safe_open(cls, file, mode='r', *args, **kwargs):
-        """Safe open that only allows reading specific files."""
-        # Only allow read modes
+        """Safe open that only allows reading specific files and writing to output_dir."""
+        file_str = str(file)
+
+        # Check write modes
         if 'w' in mode or 'a' in mode or 'x' in mode or '+' in mode:
-            raise SecurityError("Writing files is not allowed. Use create_pdf or other tools.")
+            # Allow writes only inside output_dir
+            if cls._output_dir and file_str.startswith(cls._output_dir):
+                import builtins
+                return builtins.open(file, mode, *args, **kwargs)
+            raise SecurityError("Writing files is not allowed outside the output directory.")
 
         # Check if file is in allowed paths
-        file_str = str(file)
         if not any(file_str == allowed or file_str.startswith(allowed) for allowed in cls._allowed_paths):
             raise SecurityError(
                 f"Reading '{file}' is not allowed. "
@@ -340,7 +371,8 @@ def execute_python(
     code: str,
     allowed_file_paths: Optional[List[str]] = None,
     timeout: int = EXECUTION_TIMEOUT,
-    context_vars: Optional[Dict[str, Any]] = None
+    context_vars: Optional[Dict[str, Any]] = None,
+    output_dir: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Execute Python code in a sandboxed environment.
@@ -350,6 +382,7 @@ def execute_python(
         allowed_file_paths: List of file paths the code can read
         timeout: Maximum execution time in seconds
         context_vars: Variables to inject into the execution namespace
+        output_dir: Directory where the code can write output files (plots, CSVs, etc.)
 
     Returns:
         Dict with:
@@ -357,6 +390,7 @@ def execute_python(
             - output: captured stdout
             - error: error message if failed
             - result: return value of last expression (if any)
+            - output_paths: list of files created (if any)
     """
     # Validate code first
     is_valid, errors = validate_code(code)
@@ -371,6 +405,13 @@ def execute_python(
     # Set allowed file paths
     SafeBuiltins.set_allowed_paths(allowed_file_paths or [])
 
+    # Set output directory for writing
+    if output_dir:
+        _os.makedirs(output_dir, exist_ok=True)
+        SafeBuiltins.set_output_dir(output_dir)
+    else:
+        SafeBuiltins.set_output_dir('')
+
     # Create restricted execution environment
     safe_builtins = SafeBuiltins.get_safe_builtins()
 
@@ -380,6 +421,10 @@ def execute_python(
         '__name__': '__main__',
         '__doc__': None,
     }
+
+    # Inject OUTPUT_DIR if provided
+    if output_dir:
+        namespace['OUTPUT_DIR'] = output_dir
 
     # Add context variables
     if context_vars:
@@ -451,6 +496,24 @@ def execute_python(
             'result': None
         }
 
+    # Auto-save matplotlib figures if output_dir is set
+    output_paths = []
+    if output_dir and 'matplotlib.pyplot' in sys.modules:
+        try:
+            plt = sys.modules['matplotlib.pyplot']
+            fig_nums = plt.get_fignums()
+            for i, num in enumerate(fig_nums):
+                fig = plt.figure(num)
+                # Skip completely empty figures (no axes or empty axes)
+                if not fig.get_axes():
+                    continue
+                plot_path = _os.path.join(output_dir, f'plot_{i}.png')
+                fig.savefig(plot_path, dpi=150, bbox_inches='tight')
+                output_paths.append(plot_path)
+            plt.close('all')
+        except Exception:
+            pass  # Don't fail execution because of plot saving issues
+
     # Get output
     output = stdout_capture.getvalue()
     if len(output) > MAX_OUTPUT_SIZE:
@@ -468,18 +531,24 @@ def execute_python(
         except:
             result = str(type(result))
 
-    return {
+    response = {
         'success': True,
         'output': output,
         'error': None,
         'result': result
     }
 
+    if output_paths:
+        response['output_paths'] = output_paths
+
+    return response
+
 
 # Tool function for the agent
 def python_execute(
     code: str,
     file_paths: Optional[List[str]] = None,
+    output_dir: Optional[str] = None,
     **kwargs
 ) -> Dict[str, Any]:
     """
@@ -495,6 +564,7 @@ def python_execute(
     Args:
         code: Python code to execute
         file_paths: Optional list of file paths the code can read
+        output_dir: Optional directory for writing output files
 
     Returns:
         Dict with execution results
@@ -502,7 +572,8 @@ def python_execute(
     result = execute_python(
         code=code,
         allowed_file_paths=file_paths,
-        timeout=EXECUTION_TIMEOUT
+        timeout=EXECUTION_TIMEOUT,
+        output_dir=output_dir
     )
 
     if not result['success']:
@@ -521,7 +592,10 @@ def python_execute(
     if result['result']:
         response['result'] = result['result']
 
-    if not result['output'] and not result['result']:
+    if result.get('output_paths'):
+        response['output_paths'] = result['output_paths']
+
+    if not result['output'] and not result['result'] and not result.get('output_paths'):
         response['message'] = 'Code executed successfully with no output'
 
     return response

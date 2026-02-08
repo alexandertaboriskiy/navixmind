@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -12,6 +13,173 @@ import '../../core/database/database.dart';
 import '../../core/database/collections/api_usage.dart';
 import '../legal/terms_of_service.dart';
 import '../legal/privacy_policy.dart';
+
+bool _extraLicensesRegistered = false;
+
+void _registerExtraLicenses() {
+  if (_extraLicensesRegistered) return;
+  _extraLicensesRegistered = true;
+
+  LicenseRegistry.addLicense(() async* {
+    const entries = <(String package, String license, String text)>[
+      // Python packages (runtime, via Chaquopy)
+      ('requests', 'Apache-2.0',
+          'Copyright 2019 Kenneth Reitz\n\n'
+              'Licensed under the Apache License, Version 2.0 (the "License"); '
+              'you may not use this file except in compliance with the License. '
+              'You may obtain a copy of the License at\n\n'
+              '    http://www.apache.org/licenses/LICENSE-2.0\n\n'
+              'Unless required by applicable law or agreed to in writing, software '
+              'distributed under the License is distributed on an "AS IS" BASIS, '
+              'WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.'),
+      ('beautifulsoup4', 'MIT',
+          'Copyright (c) Leonard Richardson\n\n'
+              'Permission is hereby granted, free of charge, to any person obtaining a copy '
+              'of this software and associated documentation files (the "Software"), to deal '
+              'in the Software without restriction, including without limitation the rights '
+              'to use, copy, modify, merge, publish, distribute, sublicense, and/or sell '
+              'copies of the Software, and to permit persons to whom the Software is '
+              'furnished to do so, subject to the following conditions:\n\n'
+              'The above copyright notice and this permission notice shall be included in all '
+              'copies or substantial portions of the Software.\n\n'
+              'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.'),
+      ('lxml', 'BSD-3-Clause',
+          'Copyright (c) lxml project\n\n'
+              'Redistribution and use in source and binary forms, with or without '
+              'modification, are permitted provided that the following conditions are met:\n\n'
+              '1. Redistributions of source code must retain the above copyright notice.\n'
+              '2. Redistributions in binary form must reproduce the above copyright notice.\n'
+              '3. Neither the name of the project nor the names of its contributors may be '
+              'used to endorse or promote products derived from this software without '
+              'specific prior written permission.\n\n'
+              'THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS".'),
+      ('pypdf', 'BSD-3-Clause',
+          'Copyright (c) pypdf contributors\n\n'
+              'Redistribution and use in source and binary forms, with or without '
+              'modification, are permitted provided that the following conditions are met:\n\n'
+              '1. Redistributions of source code must retain the above copyright notice.\n'
+              '2. Redistributions in binary form must reproduce the above copyright notice.\n'
+              '3. Neither the name of the project nor the names of its contributors may be '
+              'used to endorse or promote products derived from this software without '
+              'specific prior written permission.\n\n'
+              'THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS".'),
+      ('reportlab', 'BSD-3-Clause',
+          'Copyright (c) ReportLab Europe Ltd. 2000-2024\n\n'
+              'Redistribution and use in source and binary forms, with or without '
+              'modification, are permitted provided that the following conditions are met:\n\n'
+              '1. Redistributions of source code must retain the above copyright notice.\n'
+              '2. Redistributions in binary form must reproduce the above copyright notice.\n'
+              '3. Neither the name of the project nor the names of its contributors may be '
+              'used to endorse or promote products derived from this software without '
+              'specific prior written permission.\n\n'
+              'THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS".'),
+      ('python-docx', 'MIT',
+          'Copyright (c) Steve Canny\n\n'
+              'Permission is hereby granted, free of charge, to any person obtaining a copy '
+              'of this software and associated documentation files (the "Software"), to deal '
+              'in the Software without restriction, including without limitation the rights '
+              'to use, copy, modify, merge, publish, distribute, sublicense, and/or sell '
+              'copies of the Software, and to permit persons to whom the Software is '
+              'furnished to do so, subject to the following conditions:\n\n'
+              'The above copyright notice and this permission notice shall be included in all '
+              'copies or substantial portions of the Software.\n\n'
+              'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.'),
+      ('Pillow', 'HPND',
+          'The Python Imaging Library (PIL) is\n\n'
+              '    Copyright (c) 1997-2011 by Secret Labs AB\n'
+              '    Copyright (c) 1995-2011 by Fredrik Lundh and contributors\n\n'
+              'Pillow is the friendly PIL fork. It is\n\n'
+              '    Copyright (c) 2010-2024 by Jeffrey A. Clark and contributors\n\n'
+              'Like PIL, Pillow is licensed under the open source HPND License.'),
+      ('yt-dlp', 'Unlicense',
+          'This is free and unencumbered software released into the public domain.\n\n'
+              'Anyone is free to copy, modify, publish, use, compile, sell, or distribute '
+              'this software, either in source code form or as a compiled binary, for any '
+              'purpose, commercial or non-commercial, and by any means.'),
+      ('numpy', 'BSD-3-Clause',
+          'Copyright (c) 2005-2024 NumPy Developers\n\n'
+              'Redistribution and use in source and binary forms, with or without '
+              'modification, are permitted provided that the following conditions are met:\n\n'
+              '1. Redistributions of source code must retain the above copyright notice.\n'
+              '2. Redistributions in binary form must reproduce the above copyright notice.\n'
+              '3. Neither the name of the project nor the names of its contributors may be '
+              'used to endorse or promote products derived from this software without '
+              'specific prior written permission.\n\n'
+              'THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS".'),
+      ('python-dateutil', 'Apache-2.0 / BSD',
+          'Copyright (c) Gustavo Niemeyer, Paul Ganssle\n\n'
+              'Licensed under the Apache License, Version 2.0, or the BSD 3-Clause License, '
+              'at your option.'),
+      ('urllib3', 'MIT',
+          'Copyright (c) Andrey Petrov and contributors\n\n'
+              'Permission is hereby granted, free of charge, to any person obtaining a copy '
+              'of this software and associated documentation files (the "Software"), to deal '
+              'in the Software without restriction, including without limitation the rights '
+              'to use, copy, modify, merge, publish, distribute, sublicense, and/or sell '
+              'copies of the Software, and to permit persons to whom the Software is '
+              'furnished to do so, subject to the following conditions:\n\n'
+              'The above copyright notice and this permission notice shall be included in all '
+              'copies or substantial portions of the Software.\n\n'
+              'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.'),
+      // Native / Android libraries
+      ('FFmpeg (via ffmpeg_kit)', 'LGPL-3.0',
+          'Copyright (c) FFmpeg contributors\n\n'
+              'FFmpeg is free software; you can redistribute it and/or modify it under the '
+              'terms of the GNU Lesser General Public License as published by the Free '
+              'Software Foundation; either version 3 of the License, or (at your option) '
+              'any later version.\n\n'
+              'FFmpeg is distributed in the hope that it will be useful, but WITHOUT ANY '
+              'WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR '
+              'A PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.'),
+      ('Chaquopy', 'MIT',
+          'Copyright (c) Chaquo Ltd\n\n'
+              'Permission is hereby granted, free of charge, to any person obtaining a copy '
+              'of this software and associated documentation files (the "Software"), to deal '
+              'in the Software without restriction, including without limitation the rights '
+              'to use, copy, modify, merge, publish, distribute, sublicense, and/or sell '
+              'copies of the Software, and to permit persons to whom the Software is '
+              'furnished to do so, subject to the following conditions:\n\n'
+              'The above copyright notice and this permission notice shall be included in all '
+              'copies or substantial portions of the Software.\n\n'
+              'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.'),
+      ('ML Kit Text Recognition', 'Google APIs Terms of Service',
+          'Copyright (c) Google LLC\n\n'
+              'Use of ML Kit is subject to the Google APIs Terms of Service and the '
+              'Google ML Kit Terms of Service.\n\n'
+              'https://developers.google.com/ml-kit/terms'),
+      ('ML Kit Face Detection', 'Google APIs Terms of Service',
+          'Copyright (c) Google LLC\n\n'
+              'Use of ML Kit is subject to the Google APIs Terms of Service and the '
+              'Google ML Kit Terms of Service.\n\n'
+              'https://developers.google.com/ml-kit/terms'),
+      ('Firebase', 'Apache-2.0',
+          'Copyright (c) Google LLC\n\n'
+              'Licensed under the Apache License, Version 2.0 (the "License"); '
+              'you may not use this file except in compliance with the License. '
+              'You may obtain a copy of the License at\n\n'
+              '    http://www.apache.org/licenses/LICENSE-2.0\n\n'
+              'Unless required by applicable law or agreed to in writing, software '
+              'distributed under the License is distributed on an "AS IS" BASIS, '
+              'WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.'),
+      ('Kotlin Coroutines', 'Apache-2.0',
+          'Copyright (c) JetBrains s.r.o. and Kotlin Programming Language contributors\n\n'
+              'Licensed under the Apache License, Version 2.0 (the "License"); '
+              'you may not use this file except in compliance with the License. '
+              'You may obtain a copy of the License at\n\n'
+              '    http://www.apache.org/licenses/LICENSE-2.0\n\n'
+              'Unless required by applicable law or agreed to in writing, software '
+              'distributed under the License is distributed on an "AS IS" BASIS, '
+              'WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.'),
+    ];
+
+    for (final (package, license, text) in entries) {
+      yield LicenseEntryWithLineBreaks(
+        [package],
+        '$license\n\n$text',
+      );
+    }
+  });
+}
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -442,6 +610,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _SettingsTile(
             title: 'Licenses',
             onTap: () {
+              _registerExtraLicenses();
               showLicensePage(
                 context: context,
                 applicationName: 'NavixMind',

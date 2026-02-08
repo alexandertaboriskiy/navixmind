@@ -234,11 +234,11 @@ class TestFileSizeLimits:
 
     def test_pdf_limit(self):
         """Test PDF size limit."""
-        assert FILE_SIZE_LIMITS['pdf'] == 50 * 1024 * 1024  # 50MB
+        assert FILE_SIZE_LIMITS['pdf'] == 500 * 1024 * 1024  # 500MB
 
     def test_image_limit(self):
         """Test image size limit."""
-        assert FILE_SIZE_LIMITS['image'] == 20 * 1024 * 1024  # 20MB
+        assert FILE_SIZE_LIMITS['image'] == 500 * 1024 * 1024  # 500MB
 
     def test_video_limit(self):
         """Test video size limit."""
@@ -246,12 +246,12 @@ class TestFileSizeLimits:
 
     def test_audio_limit(self):
         """Test audio size limit."""
-        assert FILE_SIZE_LIMITS['audio'] == 100 * 1024 * 1024  # 100MB
+        assert FILE_SIZE_LIMITS['audio'] == 500 * 1024 * 1024  # 500MB
 
     def test_default_limit(self):
         """Test default size limit."""
         assert 'default' in FILE_SIZE_LIMITS
-        assert FILE_SIZE_LIMITS['default'] == 10 * 1024 * 1024  # 10MB
+        assert FILE_SIZE_LIMITS['default'] == 500 * 1024 * 1024  # 500MB
 
     def test_all_limits_positive(self):
         """Test that all limits are positive."""

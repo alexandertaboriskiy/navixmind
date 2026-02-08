@@ -101,6 +101,31 @@ class TestSystemPromptGuidance(unittest.TestCase):
         """Must mention python can't access network."""
         self.assertIn("cannot access the network", SYSTEM_PROMPT)
 
+    def test_pandas_mentioned(self):
+        """Must mention pandas as available in python_execute."""
+        self.assertIn("pandas", SYSTEM_PROMPT)
+
+    def test_matplotlib_mentioned(self):
+        """Must mention matplotlib as available in python_execute."""
+        self.assertIn("matplotlib", SYSTEM_PROMPT)
+
+    def test_output_dir_guidance(self):
+        """Must include OUTPUT_DIR guidance for python_execute."""
+        self.assertIn("OUTPUT_DIR", SYSTEM_PROMPT)
+
+    def test_plot_auto_save_guidance(self):
+        """Must include guidance that plots are auto-saved as PNG."""
+        lower = SYSTEM_PROMPT.lower()
+        self.assertIn("auto-saved", lower)
+        self.assertIn("png", lower)
+
+    def test_pandas_guidance(self):
+        """Must include guidance about using pandas for tabular data."""
+        self.assertIn("pandas", SYSTEM_PROMPT)
+        lower = SYSTEM_PROMPT.lower()
+        self.assertIn("dataframe", lower)
+
+
     def test_style_section(self):
         """Must include style guidance for mobile."""
         self.assertIn("mobile", SYSTEM_PROMPT.lower())
@@ -122,6 +147,56 @@ class TestSystemPromptGuidance(unittest.TestCase):
         # The prompt should mention using multiple trim calls for splitting
         prompt_lower = SYSTEM_PROMPT.lower()
         self.assertIn("multiple trim", prompt_lower)
+
+
+class TestFFmpegPatternsGuidance(unittest.TestCase):
+    """System prompt must include correct FFmpeg patterns to avoid agent guessing."""
+
+    def test_ffmpeg_patterns_section_exists(self):
+        self.assertIn("FFMPEG PATTERNS", SYSTEM_PROMPT)
+
+    def test_keep_every_nth_second_pattern(self):
+        """Must include correct select pattern for keeping every Nth second."""
+        self.assertIn("mod(floor(t)", SYSTEM_PROMPT)
+        self.assertIn("setpts=N/FRAME_RATE/TB", SYSTEM_PROMPT)
+
+    def test_av_sync_rule(self):
+        """Must instruct to always provide matching af with vf select."""
+        lower = SYSTEM_PROMPT.lower()
+        self.assertIn("a/v sync", lower)
+        self.assertIn("aselect", SYSTEM_PROMPT)
+        self.assertIn("asetpts=N/SR/TB", SYSTEM_PROMPT)
+
+    def test_no_mod_n_for_time(self):
+        """Must warn against using mod(n,...) for time-based editing."""
+        self.assertIn("NEVER use mod(n", SYSTEM_PROMPT)
+
+    def test_no_format_gray(self):
+        """Must warn against format=gray for B&W (breaks Android)."""
+        self.assertIn("format=gray", SYSTEM_PROMPT)
+        self.assertIn("hue=s=0", SYSTEM_PROMPT)
+
+    def test_prefer_trim_over_select(self):
+        """Must recommend trim for simple cuts."""
+        lower = SYSTEM_PROMPT.lower()
+        self.assertIn("prefer operation=\"trim\"", lower)
+
+    def test_never_use_custom_for_filtering(self):
+        """Must explicitly forbid custom for video filtering."""
+        self.assertIn('NEVER use operation="custom"', SYSTEM_PROMPT)
+
+    def test_combine_effects_guidance(self):
+        """Must explain how to combine effects in a single vf string."""
+        self.assertIn("combining effects", SYSTEM_PROMPT.lower())
+
+    def test_speed_pattern(self):
+        """Must include speed up/slow down pattern."""
+        self.assertIn("setpts=0.5*PTS", SYSTEM_PROMPT)
+        self.assertIn("atempo=2.0", SYSTEM_PROMPT)
+
+    def test_do_not_improvise(self):
+        """Must instruct model to use exact patterns."""
+        self.assertIn("do NOT improvise", SYSTEM_PROMPT)
 
 
 class TestSystemPromptSyncWithDart(unittest.TestCase):

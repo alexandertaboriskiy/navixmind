@@ -22,7 +22,7 @@ You provide your own Anthropic API key. You are solely responsible for all API u
 You are solely responsible for all content you process, generate, or store using the App. You must comply with Anthropic's Acceptable Use Policy and all applicable laws.
 
 4. DEVICE PERMISSIONS
-The App may request access to device resources including camera, microphone, storage, and network. These are used solely for app functionality. You may revoke permissions at any time through your device settings.
+The App may request access to device resources including storage and network. These are used solely for app functionality. You may revoke permissions at any time through your device settings.
 
 5. LIMITATION OF LIABILITY
 TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE DEVELOPER SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO: DATA LOSS, API COSTS, DEVICE DAMAGE, LOSS OF PROFITS, OR ANY OTHER DAMAGES ARISING FROM YOUR USE OF OR INABILITY TO USE THE APP.

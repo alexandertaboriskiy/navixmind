@@ -14,9 +14,13 @@ import 'core/services/cost_manager.dart';
 import 'core/services/native_tool_executor.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/offline_queue_manager.dart';
+import 'core/services/share_receiver_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Register share receiver channel early so Kotlin can deliver buffered files
+  ShareReceiverService.instance.initialize();
 
   // Initialize Firebase (optional - may not be configured)
   bool firebaseInitialized = false;

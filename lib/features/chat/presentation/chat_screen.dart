@@ -9,6 +9,7 @@ import '../../../core/services/analytics_service.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/offline_queue_manager.dart';
+import '../../../core/services/share_receiver_service.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../shared/widgets/spinner.dart';
 import 'widgets/message_list.dart';
@@ -43,6 +44,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _hasApiKey = false;
   bool _selfImproveEnabled = false;
   double _lastKeyboardHeight = 0;
+  bool _pendingMetricsCheck = false;
+  List<String> _externalFiles = [];
+  StreamSubscription<SharedFilesEvent>? _shareSubscription;
 
   @override
   void initState() {
@@ -54,13 +58,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _listenToLogs();
     _listenToConnectivity();
     _listenToAuth();
+    _listenToSharedFiles();
   }
 
   @override
   void didChangeMetrics() {
     super.didChangeMetrics();
-    // Scroll to bottom when keyboard appears
+    // Scroll to bottom when keyboard appears.
+    // Debounce: only check once per frame to avoid lag from repeated metric changes.
+    if (_pendingMetricsCheck) return;
+    _pendingMetricsCheck = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pendingMetricsCheck = false;
+      if (!mounted) return;
       final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
       if (keyboardHeight > _lastKeyboardHeight && _messages.isNotEmpty) {
         _scrollToBottom();
@@ -184,6 +194,68 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
   }
 
+  void _listenToSharedFiles() {
+    _shareSubscription = ShareReceiverService.instance.stream.listen((event) {
+      _applySharedFiles(event);
+    });
+
+    // Check for buffered cold-start event — must defer to after build
+    // to avoid setState() during build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final pending = ShareReceiverService.instance.consumePending();
+      if (pending != null) {
+        _applySharedFiles(pending);
+      }
+    });
+  }
+
+  void _applySharedFiles(SharedFilesEvent event) {
+    final validFiles = <String>[];
+    final errors = <String>[];
+
+    for (final file in event.files) {
+      if (file.error != null) {
+        errors.add(file.error!);
+      } else if (file.path.isNotEmpty) {
+        validFiles.add(file.path);
+      }
+    }
+
+    setState(() {
+      // Show error messages for failed files
+      for (final error in errors) {
+        _messages.add(ChatMessage(
+          role: MessageRole.error,
+          content: error,
+          timestamp: DateTime.now(),
+        ));
+      }
+
+      if (validFiles.isNotEmpty) {
+        // Append to existing attached files
+        _attachedFiles = [..._attachedFiles, ...validFiles];
+        _externalFiles = [..._externalFiles, ...validFiles];
+
+        _messages.add(ChatMessage(
+          role: MessageRole.system,
+          content: 'Received ${validFiles.length} file(s) from share. Add a prompt and send.',
+          timestamp: DateTime.now(),
+        ));
+      }
+
+      // If extra text was shared, put it in the input field
+      if (event.text != null && event.text!.isNotEmpty) {
+        _inputController.text = event.text!;
+        _inputController.selection = TextSelection.fromPosition(
+          TextPosition(offset: event.text!.length),
+        );
+      }
+    });
+
+    _scrollToBottom();
+  }
+
   void _listenToPythonStatus() {
     PythonBridge.instance.statusStream.listen((status) {
       setState(() {
@@ -214,8 +286,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     PythonBridge.instance.logStream.listen((log) {
       if (!mounted) return;
 
-      debugPrint('[Python ${log.level}] ${log.message}');
-
       // Only process logs while we're actively processing a query
       if (!_isProcessing) {
         return;
@@ -232,10 +302,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           log.isError ||
           log.isWarning;
 
-      debugPrint('Log check: "$msg" -> shouldShow=$shouldShowInChat');
-
       if (shouldShowInChat) {
-        debugPrint('Adding thinking message to chat: $msg');
         // Choose icon based on message type
         String icon;
         if (log.isError) {
@@ -286,7 +353,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> _sendMessage() async {
     final text = _inputController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty && _attachedFiles.isEmpty) return;
 
     // Handle API key input
     if (_awaitingApiKey) {
@@ -407,6 +474,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _isProcessing = false;
           _statusMessage = null;
           _attachedFiles = [];
+          _externalFiles = [];
         });
         _scrollToBottom();
       }
@@ -649,6 +717,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               onSend: _sendMessage,
               enabled: (isPythonReady || _awaitingApiKey) && !_isProcessing,
               isProcessing: _isProcessing,
+              externalFiles: _externalFiles,
               onFilesSelected: (files) {
                 setState(() {
                   _attachedFiles = files;
@@ -663,6 +732,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _shareSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _inputController.dispose();
     _scrollController.dispose();

@@ -90,6 +90,111 @@ class NativeToolExecutor {
     }
   }
 
+  /// Sanitize comparison operators in FFmpeg filter expressions.
+  /// FFmpegKit's native filter graph parser can crash (SIGSEGV) on `<` and `>`
+  /// operators in filter_complex strings. Replace them with FFmpeg's function
+  /// equivalents: lt(), gt(), lte(), gte() which are safer across builds.
+  /// Only replaces operators inside single-quoted expression strings (e.g. select='...').
+  String _sanitizeFFmpegComparisons(String filter) {
+    // Replace operators inside single-quoted expression segments
+    return filter.replaceAllMapped(
+      RegExp(r"'([^']*)'"),
+      (match) {
+        var expr = match.group(1)!;
+        expr = _replaceComparisonOps(expr);
+        return "'$expr'";
+      },
+    );
+  }
+
+  /// Replace comparison operators (<, >, <=, >=) with function equivalents
+  /// (lt, gt, lte, gte) in an FFmpeg expression string. Handles balanced
+  /// parentheses so `floor(mod(t,4))<2` correctly becomes `lt(floor(mod(t,4)),2)`.
+  String _replaceComparisonOps(String expr) {
+    // Process operators in order: >= and <= first (to avoid partial matches with > and <)
+    for (final op in ['>=', '<=', '>', '<']) {
+      int pos = 0;
+      while (pos < expr.length) {
+        final idx = expr.indexOf(op, pos);
+        if (idx < 0) break;
+
+        // Skip if this is part of a longer operator already handled
+        // e.g. if we're looking for '>' but it's part of '>='
+        if (op.length == 1 && idx + 1 < expr.length && expr[idx + 1] == '=') {
+          pos = idx + 1;
+          continue;
+        }
+
+        final lhsEnd = idx;
+        final rhsStart = idx + op.length;
+        if (lhsEnd <= 0 || rhsStart >= expr.length) {
+          pos = idx + 1;
+          continue;
+        }
+
+        // Walk backward to find LHS start (handling balanced parens)
+        int lhsStart = lhsEnd - 1;
+        if (expr[lhsStart] == ')') {
+          // Walk backward to find matching '('
+          int depth = 1;
+          lhsStart--;
+          while (lhsStart >= 0 && depth > 0) {
+            if (expr[lhsStart] == ')') depth++;
+            else if (expr[lhsStart] == '(') depth--;
+            lhsStart--;
+          }
+          // lhsStart is now one before the '(' — walk back over function name
+          while (lhsStart >= 0 && RegExp(r'[\w\\.]').hasMatch(expr[lhsStart])) {
+            lhsStart--;
+          }
+          lhsStart++; // Point to first char of LHS
+        } else {
+          // Simple value: walk back over word/dot/backslash characters
+          while (lhsStart > 0 && RegExp(r'[\w\\.]').hasMatch(expr[lhsStart - 1])) {
+            lhsStart--;
+          }
+        }
+
+        // Walk forward to find RHS end
+        int rhsEnd = rhsStart;
+        if (rhsEnd < expr.length && RegExp(r'[\w\\.]').hasMatch(expr[rhsEnd])) {
+          // Check if it's a function call (word chars followed by '(')
+          int tempEnd = rhsEnd;
+          while (tempEnd < expr.length && RegExp(r'[\w\\.]').hasMatch(expr[tempEnd])) {
+            tempEnd++;
+          }
+          if (tempEnd < expr.length && expr[tempEnd] == '(') {
+            // Function call: find matching ')'
+            int depth = 1;
+            tempEnd++;
+            while (tempEnd < expr.length && depth > 0) {
+              if (expr[tempEnd] == '(') depth++;
+              else if (expr[tempEnd] == ')') depth--;
+              tempEnd++;
+            }
+            rhsEnd = tempEnd;
+          } else {
+            rhsEnd = tempEnd;
+          }
+        }
+
+        if (lhsStart >= lhsEnd || rhsStart >= rhsEnd) {
+          pos = idx + 1;
+          continue;
+        }
+
+        final lhs = expr.substring(lhsStart, lhsEnd);
+        final rhs = expr.substring(rhsStart, rhsEnd);
+        final funcName = op == '>=' ? 'gte' : op == '<=' ? 'lte' : op == '>' ? 'gt' : 'lt';
+
+        final replacement = '$funcName($lhs,$rhs)';
+        expr = expr.substring(0, lhsStart) + replacement + expr.substring(rhsEnd);
+        pos = lhsStart + replacement.length;
+      }
+    }
+    return expr;
+  }
+
   /// Escape commas inside parenthesized expressions in FFmpeg filter strings.
   /// FFmpeg uses commas as filter chain separators, but inside expression
   /// functions like mod(x,y) or if(a,b,c), commas must be escaped as \,
@@ -117,6 +222,43 @@ class NativeToolExecutor {
       }
     }
     return result.toString();
+  }
+
+  /// Validate that any -filter_complex string in the command is structurally
+  /// sound. Catches garbage like command-line flags inside filter expressions
+  /// (e.g. "-c:v libx264" inside filter_complex) which cause FFmpegKit to
+  /// SIGSEGV in avfilter_inout_free / init_complex_filtergraph.
+  void _validateFilterComplex(String command) {
+    final match = RegExp(r'-filter_complex\s+"([^"]*)"').firstMatch(command);
+    if (match == null) return; // No filter_complex — nothing to validate
+
+    final fc = match.group(1)!;
+
+    // Filter_complex must NOT contain command-line flags
+    final forbiddenFlags = [' -c:v ', ' -c:a ', ' -af ', ' -vf ', ' -preset ', ' -crf ', ' -b:a ', ' -b:v '];
+    for (final flag in forbiddenFlags) {
+      if (fc.contains(flag)) {
+        throw ArgumentError(
+          'Invalid filter_complex: contains command-line flag "$flag". '
+          'Use operation="filter" instead of "custom" for video filtering.',
+        );
+      }
+    }
+
+    // Stream labels [x] must be balanced — each chain ends with [label]
+    final chains = fc.split(';');
+    for (final chain in chains) {
+      final trimmed = chain.trim();
+      if (trimmed.isEmpty) continue;
+      // Each chain should end with a stream label like [v] or [a]
+      if (!RegExp(r'\[\w+\]\s*$').hasMatch(trimmed) &&
+          !RegExp(r'^\[').hasMatch(trimmed) &&
+          chains.length > 1) {
+        // Multi-chain filter_complex where a chain doesn't end with [label]
+        // is likely malformed — but don't block single-chain expressions
+        debugPrint('[FFmpeg] Warning: filter chain may be malformed: $trimmed');
+      }
+    }
   }
 
   /// Execute FFmpeg operation
@@ -206,6 +348,10 @@ class NativeToolExecutor {
         if (vf == null && af == null) {
           throw ArgumentError('Filter requires vf (video filter) or af (audio filter) parameter');
         }
+        // Sanitize comparison operators (< > <= >=) → lt() gt() lte() gte()
+        // to prevent FFmpegKit native crash (SIGSEGV in avfilter_inout_free)
+        if (vf != null) vf = _sanitizeFFmpegComparisons(vf.toString());
+        if (af != null) af = _sanitizeFFmpegComparisons(af.toString());
         // Escape commas in expression functions (e.g. mod(x,y) -> mod(x\,y))
         if (vf != null) vf = _escapeFFmpegExprCommas(vf.toString());
         if (af != null) af = _escapeFFmpegExprCommas(af.toString());
@@ -214,14 +360,29 @@ class NativeToolExecutor {
         if (vf != null && vf.toString().contains('select')) {
           // Auto-generate matching audio filter if not provided
           if (af == null) {
-            af = vf.toString()
-                .replaceAll('select=', 'aselect=')
-                .replaceAll('setpts=N/FRAME_RATE/TB', 'asetpts=N/SR/TB');
+            // Extract only select/setpts parts from vf for audio — strip
+            // video-only filters (hue, eq, colorbalance, etc.)
+            final vfParts = vf.toString().split(',');
+            final audioParts = <String>[];
+            for (final part in vfParts) {
+              if (part.contains('select')) {
+                audioParts.add(part.replaceAll('select=', 'aselect='));
+              } else if (part.contains('setpts')) {
+                audioParts.add(part
+                    .replaceAll('setpts=N/FRAME_RATE/TB', 'asetpts=N/SR/TB')
+                    .replaceAll('setpts=', 'asetpts='));
+              }
+              // Skip video-only filters (hue, eq, format, colorbalance, etc.)
+            }
+            af = audioParts.isNotEmpty ? audioParts.join(',') : null;
             if (!vf.toString().contains('setpts')) {
               vf = "$vf,setpts=N/FRAME_RATE/TB";
             }
-            if (!af.toString().contains('asetpts')) {
+            if (af != null && !af.toString().contains('asetpts')) {
               af = "$af,asetpts=N/SR/TB";
+            }
+            if (af == null) {
+              af = "aselect='1',asetpts=N/SR/TB";
             }
           }
           // Use filter_complex with explicit stream mapping
@@ -241,34 +402,31 @@ class NativeToolExecutor {
         if (args == null || args.isEmpty) {
           throw ArgumentError('Custom requires args parameter with FFmpeg arguments');
         }
+        // Sanitize comparison operators (< > <= >=) → lt() gt() lte() gte()
+        args = _sanitizeFFmpegComparisons(args);
         // Escape commas in expression functions (e.g. mod(x,y) -> mod(x\,y))
         args = _escapeFFmpegExprCommas(args);
-        // If args use separate -vf/-af with select, convert to filter_complex
-        // to ensure both streams are properly mapped
-        if (args.contains('-vf') && args.contains('-af') && args.contains('select')) {
-          // Extract vf and af values
-          final vfMatch = RegExp(r'-vf\s+"?([^"]+)"?').firstMatch(args);
-          final afMatch = RegExp(r'-af\s+"?([^"]+)"?').firstMatch(args);
-          if (vfMatch != null && afMatch != null) {
-            final vfVal = vfMatch.group(1)!;
-            final afVal = afMatch.group(1)!;
-            // Remove -vf and -af from args, keep remaining flags
-            var remaining = args
-                .replaceAll(vfMatch.group(0)!, '')
-                .replaceAll(afMatch.group(0)!, '')
-                .trim();
-            command = '-y -i "$inputPath" -filter_complex "[0:v]$vfVal[v];[0:a]$afVal[a]" -map "[v]" -map "[a]" $remaining "$outputPath"';
-          } else {
-            command = '-y -i "$inputPath" $args "$outputPath"';
-          }
-        } else {
-          command = '-y -i "$inputPath" $args "$outputPath"';
+        // Inject -pix_fmt yuv420p for Android compatibility when re-encoding video
+        // (prevents monochrome H.264 which Android hardware decoders can't play)
+        if (args.contains('-c:v') && !args.contains('-c:v copy') && !args.contains('-pix_fmt')) {
+          args = args.replaceFirstMapped(
+            RegExp(r'-c:v\s+(\S+)'),
+            (m) => '-c:v ${m.group(1)} -pix_fmt yuv420p',
+          );
         }
+        // Pass args through as-is — the agent should use operation="filter"
+        // for filter chains, not "custom". Previous regex-based -vf/-af
+        // extraction was fragile and produced mangled commands.
+        command = '-y -i "$inputPath" $args "$outputPath"';
         break;
 
       default:
         throw ArgumentError('Unknown FFmpeg operation: $operation');
     }
+
+    // Validate filter_complex strings before execution to prevent native crashes.
+    // FFmpegKit's avfilter_inout_free SIGSEGV-crashes on malformed filter graphs.
+    _validateFilterComplex(command);
 
     // Execute FFmpeg command
     debugPrint('[FFmpeg] Command: $command');

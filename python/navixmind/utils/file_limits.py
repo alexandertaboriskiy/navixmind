@@ -10,14 +10,15 @@ class FileTooLargeError(Exception):
     pass
 
 
-# File size limits in bytes
+# File size limits in bytes — generous because all processing is local
+# (Python/FFmpeg on device), files are never sent raw to LLM cloud APIs.
 FILE_SIZE_LIMITS = {
-    'pdf': 50 * 1024 * 1024,       # 50MB for PDF
-    'image': 20 * 1024 * 1024,     # 20MB for images
-    'video': 500 * 1024 * 1024,    # 500MB for video (processed by FFmpeg, not Python)
-    'audio': 100 * 1024 * 1024,    # 100MB for audio
-    'document': 20 * 1024 * 1024,  # 20MB for DOCX/etc
-    'default': 10 * 1024 * 1024,   # 10MB default
+    'pdf': 500 * 1024 * 1024,       # 500MB
+    'image': 500 * 1024 * 1024,     # 500MB
+    'video': 500 * 1024 * 1024,     # 500MB
+    'audio': 500 * 1024 * 1024,     # 500MB
+    'document': 500 * 1024 * 1024,  # 500MB
+    'default': 500 * 1024 * 1024,   # 500MB
 }
 
 # Memory-safe processing limits
@@ -25,6 +26,8 @@ PROCESSING_LIMITS = {
     'pdf_pages': 200,              # Max pages to process at once
     'image_pixels': 25_000_000,    # ~5000x5000 max resolution
     'text_chars': 1_000_000,       # 1M chars max text processing
+    'xlsx_rows': 100_000,          # Max rows to process per sheet
+    'pptx_slides': 500,            # Max slides to process
 }
 
 
@@ -58,6 +61,8 @@ def validate_file_for_processing(path: str, file_type: str = None) -> None:
             '.mp3': 'audio', '.wav': 'audio', '.m4a': 'audio',
             '.aac': 'audio', '.ogg': 'audio', '.flac': 'audio',
             '.doc': 'document', '.docx': 'document',
+            '.pptx': 'document', '.ppt': 'document',
+            '.xlsx': 'document', '.xls': 'document', '.xlsm': 'document',
             '.odt': 'document', '.rtf': 'document',
         }
         file_type = type_map.get(ext, 'default')

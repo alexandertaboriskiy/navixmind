@@ -7,7 +7,10 @@ This module provides tool definitions and execution logic.
 from typing import Any, Dict
 
 from .web import web_fetch, headless_browser
-from .documents import read_pdf, create_pdf, convert_document, create_zip
+from .documents import (
+    read_pdf, create_pdf, convert_document, create_zip, read_file, write_file,
+    read_docx, modify_docx, read_pptx, modify_pptx, read_xlsx, modify_xlsx,
+)
 from .media import download_media
 from .google_api import google_calendar, gmail
 from .code_executor import python_execute
@@ -100,6 +103,128 @@ TOOLS_SCHEMA = [
                 }
             },
             "required": ["input_path", "output_format"]
+        }
+    },
+    {
+        "name": "read_docx",
+        "description": "Extract text, tables, and metadata from a DOCX file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "docx_path": {"type": "string", "description": "Path to the DOCX file"},
+                "extract": {
+                    "type": "string",
+                    "enum": ["text", "tables", "all"],
+                    "default": "all",
+                    "description": "What to extract"
+                }
+            },
+            "required": ["docx_path"]
+        }
+    },
+    {
+        "name": "modify_docx",
+        "description": "Modify an existing DOCX file. Can replace text, add paragraphs, update table cells, and save back.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "input_path": {"type": "string", "description": "Path to the source DOCX"},
+                "output_path": {"type": "string", "description": "Where to save the modified DOCX"},
+                "operations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string", "enum": ["replace_text", "add_paragraph", "update_table_cell"]},
+                            "params": {"type": "object"}
+                        }
+                    },
+                    "description": "replace_text: {old, new}. add_paragraph: {text, style?}. update_table_cell: {table, row, col, text}."
+                }
+            },
+            "required": ["input_path", "output_path", "operations"]
+        }
+    },
+    {
+        "name": "read_pptx",
+        "description": "Extract text, slide content, speaker notes, and metadata from a PPTX file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pptx_path": {"type": "string", "description": "Path to the PPTX file"},
+                "extract": {
+                    "type": "string",
+                    "enum": ["text", "slides", "notes", "all"],
+                    "default": "all",
+                    "description": "What to extract"
+                }
+            },
+            "required": ["pptx_path"]
+        }
+    },
+    {
+        "name": "modify_pptx",
+        "description": "Modify an existing PPTX file. Can replace text across slides, add slides, update shape text, set speaker notes, and save back.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "input_path": {"type": "string", "description": "Path to the source PPTX"},
+                "output_path": {"type": "string", "description": "Where to save the modified PPTX"},
+                "operations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string", "enum": ["replace_text", "add_slide", "update_slide_text", "set_notes"]},
+                            "params": {"type": "object"}
+                        }
+                    },
+                    "description": "replace_text: {old, new}. add_slide: {layout_index?, title?, content?}. update_slide_text: {slide, shape_name, text}. set_notes: {slide, text}."
+                }
+            },
+            "required": ["input_path", "output_path", "operations"]
+        }
+    },
+    {
+        "name": "read_xlsx",
+        "description": "Extract cell data, sheet names, and formulas from an XLSX file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "xlsx_path": {"type": "string", "description": "Path to the XLSX file"},
+                "sheet": {"type": "string", "description": "Sheet name or index. Omit for all sheets."},
+                "range": {"type": "string", "description": "Cell range, e.g., 'A1:D10'. Omit for all data."},
+                "extract": {
+                    "type": "string",
+                    "enum": ["values", "formulas", "all"],
+                    "default": "values",
+                    "description": "What to extract"
+                }
+            },
+            "required": ["xlsx_path"]
+        }
+    },
+    {
+        "name": "modify_xlsx",
+        "description": "Modify an existing XLSX file. Can update cells, set formulas, add rows/sheets, delete sheets, and save back.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "input_path": {"type": "string", "description": "Path to the source XLSX"},
+                "output_path": {"type": "string", "description": "Where to save the modified XLSX"},
+                "operations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string", "enum": ["set_cell", "set_formula", "add_row", "add_sheet", "delete_sheet"]},
+                            "params": {"type": "object"}
+                        }
+                    },
+                    "description": "set_cell: {sheet?, cell, value}. set_formula: {sheet?, cell, formula}. add_row: {sheet?, values: []}. add_sheet: {name}. delete_sheet: {name}."
+                }
+            },
+            "required": ["input_path", "output_path", "operations"]
         }
     },
     {
@@ -247,17 +372,44 @@ TOOLS_SCHEMA = [
         }
     },
     {
+        "name": "read_file",
+        "description": "Read text content from a file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "Path to the file to read"}
+            },
+            "required": ["file_path"]
+        }
+    },
+    {
+        "name": "write_file",
+        "description": "Write text content to a file. The created file will be available for download/sharing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "output_path": {"type": "string", "description": "Filename or path for the output file"},
+                "content": {"type": "string", "description": "Text content to write to the file"}
+            },
+            "required": ["output_path", "content"]
+        }
+    },
+    {
         "name": "python_execute",
         "description": """Execute Python code in a secure sandbox. Use this for:
-- Data processing and analysis
+- Data processing and analysis (pandas DataFrames, CSV, groupby, etc.)
 - Mathematical calculations and algorithms
+- Statistical analysis (numpy, statistics)
+- Charts and plots (matplotlib — figures are auto-saved as PNG and returned)
 - Text manipulation and parsing
 - JSON/CSV data processing
 - Any computation that requires custom logic
 
-Available modules: math, numpy, json, re, datetime, collections, itertools, statistics, csv, base64, hashlib.
+Available modules: math, numpy, pandas, matplotlib, json, re, datetime, collections, itertools, statistics, csv, base64, hashlib.
 FORBIDDEN: subprocess, os, sys, shutil, socket, http, urllib, pathlib, glob, signal, ctypes, requests, multiprocessing, threading.
 To run FFmpeg/FFprobe, use the ffmpeg_process tool instead. To access files, use dedicated tools (read_pdf, ocr_image, etc.).
+
+For plots, use matplotlib — figures are auto-saved as PNG files and returned. An OUTPUT_DIR variable is available for saving files explicitly (e.g., df.to_csv(OUTPUT_DIR + '/data.csv')).
 
 The code runs with a 30-second timeout. Print statements and the last expression's value are captured and returned.""",
         "input_schema": {
@@ -304,6 +456,12 @@ def execute_tool(
         "read_pdf": read_pdf,
         "create_pdf": create_pdf,
         "convert_document": convert_document,
+        "read_docx": read_docx,
+        "modify_docx": modify_docx,
+        "read_pptx": read_pptx,
+        "modify_pptx": modify_pptx,
+        "read_xlsx": read_xlsx,
+        "modify_xlsx": modify_xlsx,
         "create_zip": create_zip,
         "download_media": download_media,
         "google_calendar": google_calendar,
@@ -313,6 +471,8 @@ def execute_tool(
         "smart_crop": _smart_crop,
         "python_execute": python_execute,
         "file_info": _file_info,
+        "read_file": read_file,
+        "write_file": write_file,
     }
 
     if tool_name not in tool_map:
@@ -335,6 +495,10 @@ def execute_tool(
     if tool_name in ["google_calendar", "gmail"]:
         args["_context"] = context
 
+    # Pass output_dir to python_execute for file writing and plot auto-save
+    if tool_name == "python_execute" and output_dir:
+        args["output_dir"] = output_dir
+
     # Pass timeout for native tools
     if tool_name in ["ocr_image", "ffmpeg_process", "smart_crop"]:
         args["_timeout_ms"] = context.get("tool_timeout_ms", 30000)
@@ -348,7 +512,7 @@ def execute_tool(
 def _resolve_file_paths(args: Dict[str, Any], file_map: Dict[str, str]) -> None:
     """Resolve basename references to full file paths using the attached files map."""
     import os
-    path_keys = ['image_path', 'input_path', 'pdf_path', 'file_path', 'path']
+    path_keys = ['image_path', 'input_path', 'pdf_path', 'file_path', 'path', 'docx_path', 'pptx_path', 'xlsx_path']
     for key in path_keys:
         if key in args:
             value = args[key]

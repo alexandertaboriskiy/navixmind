@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 
@@ -12,6 +14,7 @@ class InputBar extends StatefulWidget {
   final bool enabled;
   final bool isProcessing;
   final Function(List<String> paths)? onFilesSelected;
+  final List<String> externalFiles;
 
   const InputBar({
     super.key,
@@ -20,6 +23,7 @@ class InputBar extends StatefulWidget {
     this.enabled = true,
     this.isProcessing = false,
     this.onFilesSelected,
+    this.externalFiles = const [],
   });
 
   @override
@@ -35,6 +39,50 @@ class _InputBarState extends State<InputBar> {
   void initState() {
     super.initState();
     widget.controller.addListener(_onTextChanged);
+    _syncExternalFiles(widget.externalFiles);
+  }
+
+  @override
+  void didUpdateWidget(covariant InputBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.externalFiles != oldWidget.externalFiles) {
+      _syncExternalFiles(widget.externalFiles);
+    }
+  }
+
+  void _syncExternalFiles(List<String> externalPaths) {
+    if (externalPaths.isEmpty) return;
+
+    final existingPaths = _attachedFiles.map((f) => f.path).toSet();
+    var added = false;
+
+    for (final path in externalPaths) {
+      if (existingPaths.contains(path)) continue;
+
+      final file = File(path);
+      final name = path.split('/').last;
+      final ext = name.contains('.') ? name.split('.').last : null;
+      final type = FileValidator.detectFileType(ext);
+      final size = file.existsSync() ? file.lengthSync() : 0;
+
+      _attachedFiles.add(AttachedFile(
+        path: path,
+        name: name,
+        type: type,
+        size: size,
+      ));
+      added = true;
+    }
+
+    // Don't call setState or onFilesSelected here — this runs during
+    // initState/didUpdateWidget (i.e. during build). The parent already
+    // tracks these paths in _attachedFiles via _applySharedFiles.
+    // The widget will rebuild naturally since the parent triggered this.
+    if (added && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   void _onTextChanged() {

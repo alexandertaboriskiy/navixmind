@@ -1,13 +1,15 @@
 import 'dart:io';
 
-/// File size limits in bytes (matching Python limits)
+/// File size limits in bytes (matching Python limits).
+/// Generous because all processing is local (Python/FFmpeg on device),
+/// files are never sent raw to LLM cloud APIs.
 const Map<String, int> fileSizeLimits = {
-  'pdf': 50 * 1024 * 1024, // 50MB
-  'image': 20 * 1024 * 1024, // 20MB
+  'pdf': 500 * 1024 * 1024, // 500MB
+  'image': 500 * 1024 * 1024, // 500MB
   'video': 500 * 1024 * 1024, // 500MB
-  'audio': 100 * 1024 * 1024, // 100MB
-  'document': 20 * 1024 * 1024, // 20MB
-  'default': 10 * 1024 * 1024, // 10MB
+  'audio': 500 * 1024 * 1024, // 500MB
+  'document': 500 * 1024 * 1024, // 500MB
+  'default': 500 * 1024 * 1024, // 500MB
 };
 
 /// Exception thrown when file is too large
@@ -73,6 +75,11 @@ class FileValidator {
         return 'audio';
       case 'doc':
       case 'docx':
+      case 'pptx':
+      case 'ppt':
+      case 'xlsx':
+      case 'xls':
+      case 'xlsm':
       case 'odt':
       case 'rtf':
       case 'txt':

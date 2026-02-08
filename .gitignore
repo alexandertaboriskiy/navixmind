@@ -122,3 +122,6 @@ coverage/
 
 # Test outputs
 test-results/
+
+# Local build scripts (machine-specific paths)
+build_now.sh

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- App-internal files directory (getFilesDir()) -->
+    <files-path name="internal_files" path="." />
+    <!-- App-internal subdirectory for output files -->
+    <files-path name="navixmind_output" path="navixmind_output/" />
+    <!-- External files directory (getExternalFilesDir()) for output files -->
+    <external-files-path name="external_files" path="." />
+    <!-- Shared files received from other apps -->
+    <files-path name="navixmind_shared" path="navixmind_shared/" />
+</paths>

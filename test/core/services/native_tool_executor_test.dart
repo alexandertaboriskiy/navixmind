@@ -258,6 +258,32 @@ void main() {
       expect(command, isNot(contains('-pix_fmt yuv420p')));
     });
 
+    test('custom case injects pix_fmt when re-encoding video', () {
+      final args = "-c:v libx264 -crf 23 -c:a aac";
+      final result = _injectPixFmtForCustom(args);
+      expect(result, contains('-pix_fmt yuv420p'));
+      expect(result, contains('-c:v libx264 -pix_fmt yuv420p'));
+    });
+
+    test('custom case does not inject pix_fmt for copy', () {
+      final args = "-c:v copy -c:a copy";
+      final result = _injectPixFmtForCustom(args);
+      expect(result, isNot(contains('-pix_fmt yuv420p')));
+    });
+
+    test('custom case does not double-inject pix_fmt', () {
+      final args = "-c:v libx264 -pix_fmt yuv420p -crf 23 -c:a aac";
+      final result = _injectPixFmtForCustom(args);
+      // Should be unchanged
+      expect(result, equals(args));
+    });
+
+    test('custom case does not inject pix_fmt when no video codec', () {
+      final args = "-c:a aac -b:a 192k";
+      final result = _injectPixFmtForCustom(args);
+      expect(result, isNot(contains('-pix_fmt yuv420p')));
+    });
+
     test('handles unknown operation with passthrough', () {
       final command = _buildFFmpegCommand(
         inputPath: '/input.mp4',
@@ -861,6 +887,288 @@ void main() {
     });
   });
 
+  group('FFmpeg comparison operator sanitization', () {
+    test('replaces < with lt() in select expression', () {
+      final input = "select='floor(mod(t,4))<2'";
+      final result = _sanitizeFFmpegComparisons(input);
+      expect(result, equals("select='lt(floor(mod(t,4)),2)'"));
+    });
+
+    test('replaces > with gt() in select expression', () {
+      final input = "select='n>10'";
+      final result = _sanitizeFFmpegComparisons(input);
+      expect(result, equals("select='gt(n,10)'"));
+    });
+
+    test('replaces <= with lte() in expression', () {
+      final input = "select='t<=5.0'";
+      final result = _sanitizeFFmpegComparisons(input);
+      expect(result, equals("select='lte(t,5.0)'"));
+    });
+
+    test('replaces >= with gte() in expression', () {
+      final input = "select='t>=3.0'";
+      final result = _sanitizeFFmpegComparisons(input);
+      expect(result, equals("select='gte(t,3.0)'"));
+    });
+
+    test('only replaces inside single-quoted strings', () {
+      // The < outside quotes should NOT be replaced
+      final input = "-vf \"select='n<5'\" -af volume=2";
+      final result = _sanitizeFFmpegComparisons(input);
+      expect(result, equals("-vf \"select='lt(n,5)'\" -af volume=2"));
+    });
+
+    test('handles multiple operators in same expression', () {
+      final input = "select='gte(t,2)*lt(t,5)'";
+      // gte() and lt() are already functions, no raw operators to replace
+      final result = _sanitizeFFmpegComparisons(input);
+      expect(result, equals("select='gte(t,2)*lt(t,5)'"));
+    });
+
+    test('handles multiple comparisons with raw operators', () {
+      final input = "select='t>=2*t<5'";
+      final result = _sanitizeFFmpegComparisons(input);
+      // >= replaced first, then < — result depends on regex matching
+      expect(result, contains('gte('));
+      expect(result, contains('lt('));
+    });
+
+    test('does not modify expressions without comparisons', () {
+      final input = "select='mod(n,30)'";
+      final result = _sanitizeFFmpegComparisons(input);
+      expect(result, equals("select='mod(n,30)'"));
+    });
+
+    test('does not modify strings without single quotes', () {
+      final input = '-vf "hue=s=0" -af "volume=2"';
+      final result = _sanitizeFFmpegComparisons(input);
+      expect(result, equals(input));
+    });
+
+    test('handles the exact crash-causing expression', () {
+      // This is the actual expression that caused the SIGSEGV
+      final input = "select='floor(mod(t\\,4))<2',setpts=N/FRAME_RATE/TB";
+      final result = _sanitizeFFmpegComparisons(input);
+      expect(result, equals("select='lt(floor(mod(t\\,4)),2)',setpts=N/FRAME_RATE/TB"));
+      expect(result, isNot(contains("'<")));
+      expect(result, isNot(contains("<2'")));
+    });
+
+    test('handles nested function calls with comparison', () {
+      final input = "select='if(gt(t,2),1,0)*floor(mod(n,30))<1'";
+      final result = _sanitizeFFmpegComparisons(input);
+      // The < should become lt()
+      expect(result, contains('lt('));
+      expect(result, isNot(contains(")<1'")));
+    });
+
+    test('preserves already-sanitized expressions', () {
+      final input = "select='lt(floor(mod(t,4)),2)'";
+      final result = _sanitizeFFmpegComparisons(input);
+      // Already uses lt(), should not double-wrap
+      expect(result, equals(input));
+    });
+
+    test('handles empty string', () {
+      final result = _sanitizeFFmpegComparisons('');
+      expect(result, equals(''));
+    });
+
+    test('handles string with only quotes no operators', () {
+      final result = _sanitizeFFmpegComparisons("'hello world'");
+      expect(result, equals("'hello world'"));
+    });
+
+    test('combined with comma escaping order is correct', () {
+      // Sanitize comparisons first, then escape commas
+      final input = "select='floor(mod(t,4))<2'";
+      var result = _sanitizeFFmpegComparisons(input);
+      result = _escapeFFmpegExprCommas(result);
+      // lt(floor(mod(t,4)),2) — the commas inside parens should be escaped
+      expect(result, contains('lt(floor(mod(t\\,4))\\,2)'));
+    });
+  });
+
+  group('Auto-generated audio filter for select operations', () {
+    test('strips video-only filters (hue) from auto-generated audio', () {
+      final result = _buildFilterCommandWithAutoAudio(
+        vf: "select='not(mod(floor(t),2))',setpts=N/FRAME_RATE/TB,hue=s=0",
+        af: null,
+      );
+      // Audio should have aselect and asetpts but NOT hue
+      expect(result['af'], contains('aselect'));
+      expect(result['af'], contains('asetpts=N/SR/TB'));
+      expect(result['af'], isNot(contains('hue')));
+    });
+
+    test('strips video-only filters (eq, colorbalance) from audio', () {
+      final result = _buildFilterCommandWithAutoAudio(
+        vf: "select='mod(floor(t),3)',setpts=N/FRAME_RATE/TB,eq=brightness=0.1,colorbalance=rs=0.3",
+        af: null,
+      );
+      expect(result['af'], contains('aselect'));
+      expect(result['af'], isNot(contains('eq=')));
+      expect(result['af'], isNot(contains('colorbalance')));
+    });
+
+    test('preserves explicit af when provided', () {
+      final result = _buildFilterCommandWithAutoAudio(
+        vf: "select='not(mod(floor(t),2))',setpts=N/FRAME_RATE/TB,hue=s=0",
+        af: "aselect='not(mod(floor(t),2))',asetpts=N/SR/TB",
+      );
+      // Should use the provided af, not auto-generate
+      expect(result['af'], equals("aselect='not(mod(floor(t),2))',asetpts=N/SR/TB"));
+    });
+
+    test('auto-adds setpts when missing from vf', () {
+      final result = _buildFilterCommandWithAutoAudio(
+        vf: "select='not(mod(floor(t),2))'",
+        af: null,
+      );
+      expect(result['vf'], contains('setpts=N/FRAME_RATE/TB'));
+      expect(result['af'], contains('asetpts=N/SR/TB'));
+    });
+
+    test('auto-adds asetpts when missing from generated af', () {
+      final result = _buildFilterCommandWithAutoAudio(
+        vf: "select='mod(floor(t),3)',setpts=N/FRAME_RATE/TB",
+        af: null,
+      );
+      expect(result['af'], contains('asetpts=N/SR/TB'));
+    });
+
+    test('generates fallback audio filter when vf has no select parts', () {
+      // Edge case: vf has select in the string but no extractable select= part
+      // This shouldn't normally happen but tests the fallback
+      final result = _buildFilterCommandWithAutoAudio(
+        vf: "select='not(mod(floor(t),2))',setpts=N/FRAME_RATE/TB",
+        af: null,
+      );
+      expect(result['af'], isNotNull);
+      expect(result['af'], isNot(isEmpty));
+    });
+
+    test('handles vf with only hue filter and select', () {
+      final result = _buildFilterCommandWithAutoAudio(
+        vf: "select='not(mod(floor(t),2))',hue=s=0",
+        af: null,
+      );
+      // Should auto-add setpts to vf and generate proper audio
+      expect(result['vf'], contains('setpts=N/FRAME_RATE/TB'));
+      expect(result['af'], contains('aselect'));
+      expect(result['af'], isNot(contains('hue')));
+    });
+
+    test('generates filter_complex command for select operations', () {
+      final result = _buildFilterCommandWithAutoAudio(
+        vf: "select='not(mod(floor(t),2))',setpts=N/FRAME_RATE/TB",
+        af: null,
+      );
+      expect(result['command'], contains('-filter_complex'));
+      expect(result['command'], contains('[0:v]'));
+      expect(result['command'], contains('[0:a]'));
+      expect(result['command'], contains('-map "[v]"'));
+      expect(result['command'], contains('-map "[a]"'));
+      expect(result['command'], contains('-pix_fmt yuv420p'));
+    });
+
+    test('command includes codec flags for filter_complex', () {
+      final result = _buildFilterCommandWithAutoAudio(
+        vf: "select='not(mod(floor(t),2))',setpts=N/FRAME_RATE/TB",
+        af: null,
+      );
+      expect(result['command'], contains('-c:v libx264'));
+      expect(result['command'], contains('-c:a aac'));
+    });
+  });
+
+  group('Custom case simplification', () {
+    test('custom case passes args through without modification (except sanitization)', () {
+      // After removing the buggy regex, custom should just pass through
+      final args = '-vf "hue=s=0" -c:v libx264 -c:a aac';
+      final command = _buildCustomCommand(
+        inputPath: '/input.mp4',
+        outputPath: '/output.mp4',
+        args: args,
+      );
+      expect(command, contains(args));
+      expect(command, startsWith('-y -i'));
+    });
+
+    test('custom case does not try to convert -vf/-af to filter_complex', () {
+      final args = '-vf "select=\'mod(floor(t),2)\',setpts=N/FRAME_RATE/TB" -af "aselect=\'mod(floor(t),2)\',asetpts=N/SR/TB" -c:v libx264 -c:a aac';
+      final command = _buildCustomCommand(
+        inputPath: '/input.mp4',
+        outputPath: '/output.mp4',
+        args: args,
+      );
+      // Should NOT have filter_complex — just pass through
+      expect(command, isNot(contains('-filter_complex')));
+      expect(command, contains('-vf'));
+      expect(command, contains('-af'));
+    });
+
+    test('custom case still injects pix_fmt when re-encoding', () {
+      final args = '-c:v libx264 -crf 23 -c:a aac';
+      final result = _injectPixFmtForCustom(args);
+      expect(result, contains('-pix_fmt yuv420p'));
+    });
+
+    test('custom case still sanitizes comparisons', () {
+      final args = "-filter_complex \"[0:v]select='t<5'[v]\"";
+      final result = _sanitizeFFmpegComparisons(args);
+      expect(result, contains('lt(t,5)'));
+    });
+  });
+
+  group('Filter_complex validation', () {
+    test('accepts valid filter_complex command', () {
+      final command = '-y -i "/input.mp4" -filter_complex "[0:v]select=\'not(mod(floor(t)\\,2))\',setpts=N/FRAME_RATE/TB,hue=s=0[v];[0:a]aselect=\'not(mod(floor(t)\\,2))\',asetpts=N/SR/TB[a]" -map "[v]" -map "[a]" -c:v libx264 -pix_fmt yuv420p -crf 23 -c:a aac "/output.mp4"';
+      // Should not throw
+      _validateFilterComplex(command);
+    });
+
+    test('rejects filter_complex with -c:v flag inside', () {
+      final command = '-y -i "/input.mp4" -filter_complex "[0:v]select=\'...\' -c:v libx264[v];[0:a]...[a]" -map "[v]" -map "[a]" "/output.mp4"';
+      expect(
+        () => _validateFilterComplex(command),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('rejects filter_complex with -af flag inside', () {
+      final command = '-y -i "/input.mp4" -filter_complex "[0:v]select=\'...\' -af aselect=\'...\'[v];[0:a]...[a]" -map "[v]" -map "[a]" "/output.mp4"';
+      expect(
+        () => _validateFilterComplex(command),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('rejects filter_complex with -preset flag inside', () {
+      final command = '-y -i "/input.mp4" -filter_complex "[0:v]hue=s=0 -preset slow[v]" "/output.mp4"';
+      expect(
+        () => _validateFilterComplex(command),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('accepts command without filter_complex', () {
+      final command = '-y -i "/input.mp4" -vf "hue=s=0" -c:v libx264 -pix_fmt yuv420p "/output.mp4"';
+      // Should not throw — no filter_complex to validate
+      _validateFilterComplex(command);
+    });
+
+    test('catches the exact mangled command that caused the SIGSEGV crash', () {
+      // This is the actual command from the crash log (Query 4)
+      final command = '-y -i "/input.mp4" -filter_complex "[0:v]select=\'not(mod(floor(t)\\,2))\',setpts=N/FRAME_RATE/TB,hue=s=0 -af aselect=\'not(mod(floor(t)\\,2))\',asetpts=N/SR/TB -c:v libx264 -pix_fmt yuv420p -preset slow -crf 18 -c:a aac -b:a 192k[v];[0:a]aselect=\'not(mod(floor(t)\\,2))\',asetpts=N/SR/TB -c:v libx264 -pix_fmt yuv420p -preset slow -crf 18 -c:a aac -b:a 192k[a]" -map "[v]" -map "[a]" "/output.mp4"';
+      expect(
+        () => _validateFilterComplex(command),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+  });
+
   group('Smart crop strategy selection', () {
     test('uses face_centered strategy when faces detected', () {
       final faces = [
@@ -1237,6 +1545,211 @@ Map<String, int> _calculateRuleOfThirdsCrop({
     'width': cropWidth,
     'height': cropHeight,
   };
+}
+
+/// Sanitize comparison operators in FFmpeg filter expressions.
+/// Mirrors NativeToolExecutor._sanitizeFFmpegComparisons
+String _sanitizeFFmpegComparisons(String filter) {
+  return filter.replaceAllMapped(
+    RegExp(r"'([^']*)'"),
+    (match) {
+      var expr = match.group(1)!;
+      expr = _replaceComparisonOps(expr);
+      return "'$expr'";
+    },
+  );
+}
+
+/// Replace comparison operators with function equivalents.
+/// Mirrors NativeToolExecutor._replaceComparisonOps
+String _replaceComparisonOps(String expr) {
+  for (final op in ['>=', '<=', '>', '<']) {
+    int pos = 0;
+    while (pos < expr.length) {
+      final idx = expr.indexOf(op, pos);
+      if (idx < 0) break;
+
+      if (op.length == 1 && idx + 1 < expr.length && expr[idx + 1] == '=') {
+        pos = idx + 1;
+        continue;
+      }
+
+      final lhsEnd = idx;
+      final rhsStart = idx + op.length;
+      if (lhsEnd <= 0 || rhsStart >= expr.length) {
+        pos = idx + 1;
+        continue;
+      }
+
+      int lhsStart = lhsEnd - 1;
+      if (expr[lhsStart] == ')') {
+        int depth = 1;
+        lhsStart--;
+        while (lhsStart >= 0 && depth > 0) {
+          if (expr[lhsStart] == ')') depth++;
+          else if (expr[lhsStart] == '(') depth--;
+          lhsStart--;
+        }
+        while (lhsStart >= 0 && RegExp(r'[\w\\.]').hasMatch(expr[lhsStart])) {
+          lhsStart--;
+        }
+        lhsStart++;
+      } else {
+        while (lhsStart > 0 && RegExp(r'[\w\\.]').hasMatch(expr[lhsStart - 1])) {
+          lhsStart--;
+        }
+      }
+
+      int rhsEnd = rhsStart;
+      if (rhsEnd < expr.length && RegExp(r'[\w\\.]').hasMatch(expr[rhsEnd])) {
+        int tempEnd = rhsEnd;
+        while (tempEnd < expr.length && RegExp(r'[\w\\.]').hasMatch(expr[tempEnd])) {
+          tempEnd++;
+        }
+        if (tempEnd < expr.length && expr[tempEnd] == '(') {
+          int depth = 1;
+          tempEnd++;
+          while (tempEnd < expr.length && depth > 0) {
+            if (expr[tempEnd] == '(') depth++;
+            else if (expr[tempEnd] == ')') depth--;
+            tempEnd++;
+          }
+          rhsEnd = tempEnd;
+        } else {
+          rhsEnd = tempEnd;
+        }
+      }
+
+      if (lhsStart >= lhsEnd || rhsStart >= rhsEnd) {
+        pos = idx + 1;
+        continue;
+      }
+
+      final lhs = expr.substring(lhsStart, lhsEnd);
+      final rhs = expr.substring(rhsStart, rhsEnd);
+      final funcName = op == '>=' ? 'gte' : op == '<=' ? 'lte' : op == '>' ? 'gt' : 'lt';
+
+      final replacement = '$funcName($lhs,$rhs)';
+      expr = expr.substring(0, lhsStart) + replacement + expr.substring(rhsEnd);
+      pos = lhsStart + replacement.length;
+    }
+  }
+  return expr;
+}
+
+/// Escape commas inside parenthesized expressions in FFmpeg filter strings.
+/// Mirrors NativeToolExecutor._escapeFFmpegExprCommas
+String _escapeFFmpegExprCommas(String filter) {
+  final result = StringBuffer();
+  int parenDepth = 0;
+  for (int i = 0; i < filter.length; i++) {
+    final ch = filter[i];
+    if (ch == '(') {
+      parenDepth++;
+      result.write(ch);
+    } else if (ch == ')') {
+      parenDepth = (parenDepth - 1).clamp(0, 999);
+      result.write(ch);
+    } else if (ch == ',' && parenDepth > 0) {
+      if (i > 0 && filter[i - 1] == '\\') {
+        result.write(ch);
+      } else {
+        result.write('\\,');
+      }
+    } else {
+      result.write(ch);
+    }
+  }
+  return result.toString();
+}
+
+/// Inject -pix_fmt yuv420p for custom FFmpeg args when re-encoding video.
+/// Mirrors the logic in NativeToolExecutor._executeFFmpeg custom case.
+String _injectPixFmtForCustom(String args) {
+  if (args.contains('-c:v') && !args.contains('-c:v copy') && !args.contains('-pix_fmt')) {
+    args = args.replaceFirstMapped(
+      RegExp(r'-c:v\s+(\S+)'),
+      (m) => '-c:v ${m.group(1)} -pix_fmt yuv420p',
+    );
+  }
+  return args;
+}
+
+/// Validate filter_complex string to prevent native crashes.
+/// Mirrors NativeToolExecutor._validateFilterComplex
+void _validateFilterComplex(String command) {
+  final match = RegExp(r'-filter_complex\s+"([^"]*)"').firstMatch(command);
+  if (match == null) return;
+
+  final fc = match.group(1)!;
+
+  final forbiddenFlags = [' -c:v ', ' -c:a ', ' -af ', ' -vf ', ' -preset ', ' -crf ', ' -b:a ', ' -b:v '];
+  for (final flag in forbiddenFlags) {
+    if (fc.contains(flag)) {
+      throw ArgumentError(
+        'Invalid filter_complex: contains command-line flag "$flag". '
+        'Use operation="filter" instead of "custom" for video filtering.',
+      );
+    }
+  }
+}
+
+/// Build filter command with auto-generated audio filter.
+/// Mirrors the select-handling logic in NativeToolExecutor._executeFFmpeg filter case.
+Map<String, dynamic> _buildFilterCommandWithAutoAudio({
+  required String? vf,
+  required String? af,
+}) {
+  const inputPath = '/input.mp4';
+  const outputPath = '/output.mp4';
+  String command;
+
+  if (vf != null && vf.contains('select')) {
+    // Auto-generate matching audio filter if not provided
+    if (af == null) {
+      final vfParts = vf.split(',');
+      final audioParts = <String>[];
+      for (final part in vfParts) {
+        if (part.contains('select')) {
+          audioParts.add(part.replaceAll('select=', 'aselect='));
+        } else if (part.contains('setpts')) {
+          audioParts.add(part
+              .replaceAll('setpts=N/FRAME_RATE/TB', 'asetpts=N/SR/TB')
+              .replaceAll('setpts=', 'asetpts='));
+        }
+        // Skip video-only filters (hue, eq, format, colorbalance, etc.)
+      }
+      af = audioParts.isNotEmpty ? audioParts.join(',') : null;
+      if (!vf.contains('setpts')) {
+        vf = "$vf,setpts=N/FRAME_RATE/TB";
+      }
+      if (af != null && !af.contains('asetpts')) {
+        af = "$af,asetpts=N/SR/TB";
+      }
+      if (af == null) {
+        af = "aselect='1',asetpts=N/SR/TB";
+      }
+    }
+    command = '-y -i "$inputPath" -filter_complex "[0:v]$vf[v];[0:a]$af[a]" -map "[v]" -map "[a]" -c:v libx264 -pix_fmt yuv420p -crf 23 -c:a aac "$outputPath"';
+  } else if (vf != null && af != null) {
+    command = '-y -i "$inputPath" -vf "$vf" -af "$af" -c:v libx264 -pix_fmt yuv420p -crf 23 -c:a aac "$outputPath"';
+  } else if (vf != null) {
+    command = '-y -i "$inputPath" -vf "$vf" -c:v libx264 -pix_fmt yuv420p -crf 23 -c:a aac "$outputPath"';
+  } else {
+    command = '-y -i "$inputPath" -c:v copy -af "$af" -c:a aac "$outputPath"';
+  }
+
+  return {'command': command, 'vf': vf, 'af': af};
+}
+
+/// Build custom FFmpeg command (simplified — no regex conversion).
+/// Mirrors the custom case in NativeToolExecutor._executeFFmpeg.
+String _buildCustomCommand({
+  required String inputPath,
+  required String outputPath,
+  required String args,
+}) {
+  return '-y -i "$inputPath" $args "$outputPath"';
 }
 
 /// Simulate video frame sampling logic

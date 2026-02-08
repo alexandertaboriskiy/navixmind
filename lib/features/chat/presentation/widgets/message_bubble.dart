@@ -2,12 +2,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../../app/theme.dart';
 import '../../../../core/services/auth_service.dart';
 import '../chat_screen.dart';
+
+/// Platform channel for native file operations
+const _fileChannel = MethodChannel('ai.navixmind/file_opener');
 
 /// Individual message bubble with role-based styling
 class MessageBubble extends StatelessWidget {
@@ -205,17 +207,27 @@ class MessageBubble extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Tappable file link - opens with Android "open with" menu
+        // Tappable file link - opens with Android default viewer
         Flexible(
           child: InkWell(
             onTap: () async {
               final file = File(filePath);
               if (await file.exists()) {
-                final result = await OpenFilex.open(filePath);
-                if (result.type != ResultType.done && context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Cannot open: ${result.message}')),
+                try {
+                  // Try to open with native file viewer
+                  final opened = await _fileChannel.invokeMethod<bool>(
+                    'openFile',
+                    {'path': filePath},
                   );
+                  if (opened != true && context.mounted) {
+                    // Fallback to share if no app can open the file
+                    await Share.shareXFiles([XFile(filePath)]);
+                  }
+                } catch (e) {
+                  // Fallback to share on any error
+                  if (context.mounted) {
+                    await Share.shareXFiles([XFile(filePath)]);
+                  }
                 }
               } else {
                 if (context.mounted) {

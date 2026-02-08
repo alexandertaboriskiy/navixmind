@@ -54,14 +54,14 @@ void main() {
       test('returns correct limit for PDF', () {
         expect(
           FileValidator.getLimitForType('pdf'),
-          equals(50 * 1024 * 1024),
+          equals(500 * 1024 * 1024),
         );
       });
 
       test('returns correct limit for image', () {
         expect(
           FileValidator.getLimitForType('image'),
-          equals(20 * 1024 * 1024),
+          equals(500 * 1024 * 1024),
         );
       });
 
@@ -75,21 +75,21 @@ void main() {
       test('returns correct limit for audio', () {
         expect(
           FileValidator.getLimitForType('audio'),
-          equals(100 * 1024 * 1024),
+          equals(500 * 1024 * 1024),
         );
       });
 
       test('returns correct limit for document', () {
         expect(
           FileValidator.getLimitForType('document'),
-          equals(20 * 1024 * 1024),
+          equals(500 * 1024 * 1024),
         );
       });
 
       test('returns default limit for unknown type', () {
         expect(
           FileValidator.getLimitForType('unknown'),
-          equals(10 * 1024 * 1024),
+          equals(500 * 1024 * 1024),
         );
       });
     });
