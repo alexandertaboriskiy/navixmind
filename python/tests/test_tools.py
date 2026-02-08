@@ -626,7 +626,7 @@ class TestFileLimits:
              patch('os.path.getsize') as mock_size:
 
             mock_exists.return_value = True
-            mock_size.return_value = 100 * 1024 * 1024  # 100MB
+            mock_size.return_value = 600 * 1024 * 1024  # 600MB (exceeds 500MB limit)
 
             with pytest.raises(FileTooLargeError):
                 validate_file_for_processing("/path/to/large.pdf", "pdf")

@@ -25,6 +25,7 @@ class MessageBubble extends StatelessWidget {
     return Semantics(
       label: _accessibilityLabel,
       hint: 'Long press to copy',
+      excludeSemantics: true,
       child: GestureDetector(
         onLongPress: () => _showContextMenu(context),
         child: Row(
