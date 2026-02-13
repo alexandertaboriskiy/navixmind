@@ -1549,3 +1549,516 @@ class TestParseToolCallsFromText:
         import json
         parsed = json.loads(results[0])
         assert parsed["arguments"]["a"]["b"] == "c"
+
+
+class TestThinkTagStripping:
+    """Tests for <think> tag stripping before tool call extraction."""
+
+    def test_think_tags_stripped_before_tool_call(self):
+        """Qwen3 wraps output in <think>...</think> — must be stripped."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '<think>\nOkay, the user wants me to calculate 2+2. I should use python_execute.\n</think>\n<tool_call>\n{"name": "python_execute", "arguments": {"code": "print(2+2)"}}\n</tool_call>'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        tool_uses = [b for b in result["content"] if b["type"] == "tool_use"]
+        assert len(tool_uses) == 1
+        assert tool_uses[0]["name"] == "python_execute"
+        assert tool_uses[0]["input"] == {"code": "print(2+2)"}
+
+    def test_think_tags_stripped_with_raw_json(self):
+        """<think> block followed by raw JSON (no <tool_call> tags)."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '<think>\nLet me think about this...\n</think>\n{"name": "python_execute", "arguments": {"code": "print(42)"}}'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        tool_uses = [b for b in result["content"] if b["type"] == "tool_use"]
+        assert len(tool_uses) == 1
+        assert tool_uses[0]["name"] == "python_execute"
+
+    def test_think_tags_with_multiline_content(self):
+        """<think> block with lots of reasoning text."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '<think>\nOkay, the user wants to know 2+2.\nI need to use python_execute.\nLet me format the tool call.\n</think>\n{"name": "python_execute", "arguments": {"code": "print(2+2)"}}'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        # Think content should NOT appear in output
+        text_blocks = [b for b in result["content"] if b["type"] == "text"]
+        for tb in text_blocks:
+            assert "<think>" not in tb["text"]
+            assert "I need to use" not in tb["text"]
+
+    def test_empty_think_block(self):
+        """Empty <think></think> should be stripped without issue."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '<think></think>\n{"name": "python_execute", "arguments": {"code": "print(1)"}}'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["name"] == "python_execute"
+
+    def test_no_think_tags_still_works(self):
+        """Responses without <think> tags should still parse normally."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '{"name": "python_execute", "arguments": {"code": "print(1)"}}'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["name"] == "python_execute"
+
+
+class TestToolKeyAlternate:
+    """Tests for accepting 'tool' key as alternate to 'name'."""
+
+    def test_tool_key_in_json(self):
+        """Model outputs {"tool":"python_execute"} instead of {"name":"python_execute"}."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '{"tool": "python_execute", "arguments": {"code": "print(2+2)"}}'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["type"] == "tool_use"
+        assert result["content"][0]["name"] == "python_execute"
+        assert result["content"][0]["input"] == {"code": "print(2+2)"}
+
+    def test_tool_key_in_tool_call_tags(self):
+        """<tool_call> with {"tool":"..."} key."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '<tool_call>\n{"tool": "read_file", "arguments": {"file_path": "test.txt"}}\n</tool_call>'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["name"] == "read_file"
+
+    def test_tool_key_with_nested_arguments(self):
+        """'tool' key with nested params."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '{"tool": "ffmpeg_process", "arguments": {"input_path": "v.mp4", "output_path": "out.mp4", "operation": "trim", "params": {"start": "0", "end": "30"}}}'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["name"] == "ffmpeg_process"
+        assert result["content"][0]["input"]["params"]["end"] == "30"
+
+    def test_tool_key_malformed_json_repair(self):
+        """'tool' key with missing closing brace should still be repaired."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '{"tool": "python_execute", "arguments": {"code": "print(1)"}'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        tool_uses = [b for b in result["content"] if b["type"] == "tool_use"]
+        assert len(tool_uses) == 1
+        assert tool_uses[0]["name"] == "python_execute"
+
+    def test_extract_json_objects_accepts_tool_key(self):
+        """_extract_json_objects should find objects with 'tool' key."""
+        from navixmind.agent import _extract_json_objects
+
+        text = '{"tool": "python_execute", "arguments": {"code": "x=1"}}'
+        results = _extract_json_objects(text)
+        assert len(results) == 1
+        parsed = json.loads(results[0])
+        assert parsed["tool"] == "python_execute"
+
+    def test_extract_json_objects_repairs_tool_key_malformed(self):
+        """_extract_json_objects should repair malformed JSON with 'tool' key."""
+        from navixmind.agent import _extract_json_objects
+
+        text = '{"tool": "ffmpeg_process", "arguments": {"operation": "trim", "params": {"start": "0"}}'
+        results = _extract_json_objects(text)
+        assert len(results) == 1
+        parsed = json.loads(results[0])
+        assert parsed["tool"] == "ffmpeg_process"
+
+
+class TestMarkdownCodeFenceStripping:
+    """Tests for markdown code fence stripping."""
+
+    def test_json_code_fence(self):
+        """Tool call wrapped in ```json ... ``` fences."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '```json\n{"name": "python_execute", "arguments": {"code": "print(2+2)"}}\n```'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["name"] == "python_execute"
+        assert result["content"][0]["input"] == {"code": "print(2+2)"}
+
+    def test_plain_code_fence(self):
+        """Tool call wrapped in ``` ... ``` (no language tag)."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '```\n{"name": "python_execute", "arguments": {"code": "print(42)"}}\n```'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["name"] == "python_execute"
+
+    def test_python_code_fence(self):
+        """Tool call wrapped in ```python ... ``` fences."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '```python\n{"name": "python_execute", "arguments": {"code": "x = 1"}}\n```'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["name"] == "python_execute"
+
+    def test_code_fence_with_surrounding_text(self):
+        """Code fence with text before it."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": 'I will calculate that:\n```json\n{"name": "python_execute", "arguments": {"code": "print(2+2)"}}\n```'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        tool_uses = [b for b in result["content"] if b["type"] == "tool_use"]
+        assert len(tool_uses) == 1
+        assert tool_uses[0]["name"] == "python_execute"
+        # Surrounding text should be preserved
+        text_blocks = [b for b in result["content"] if b["type"] == "text"]
+        assert any("calculate" in b["text"] for b in text_blocks)
+
+
+class TestOpenAIFunctionFormat:
+    """Tests for OpenAI function calling format fallback."""
+
+    def test_openai_function_format(self):
+        """Model outputs OpenAI format: {"type":"function","function":{"name":"...","arguments":{...}}}."""
+        from navixmind.agent import _try_parse_tool_json
+
+        json_str = json.dumps({
+            "type": "function",
+            "function": {
+                "name": "python_execute",
+                "arguments": {"code": "print(2+2)"}
+            }
+        })
+
+        result = _try_parse_tool_json(json_str, 0)
+
+        assert result is not None
+        assert result["type"] == "tool_use"
+        assert result["name"] == "python_execute"
+        assert result["input"] == {"code": "print(2+2)"}
+
+    def test_openai_function_format_string_arguments(self):
+        """OpenAI format with arguments as JSON string."""
+        from navixmind.agent import _try_parse_tool_json
+
+        json_str = json.dumps({
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "arguments": '{"file_path": "test.txt"}'
+            }
+        })
+
+        result = _try_parse_tool_json(json_str, 0)
+
+        assert result is not None
+        assert result["name"] == "read_file"
+        assert result["input"] == {"file_path": "test.txt"}
+
+    def test_openai_function_format_in_text(self):
+        """Full pipeline: OpenAI function format embedded in text response."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '{"type": "function", "function": {"name": "python_execute", "arguments": {"code": "print(2+2)"}}}'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["name"] == "python_execute"
+
+    def test_openai_function_format_missing_function_key(self):
+        """Missing function key should not crash."""
+        from navixmind.agent import _try_parse_tool_json
+
+        json_str = json.dumps({"type": "function"})
+
+        result = _try_parse_tool_json(json_str, 0)
+
+        assert result is None
+
+    def test_openai_function_format_non_dict_function(self):
+        """function key is a string instead of dict."""
+        from navixmind.agent import _try_parse_tool_json
+
+        json_str = json.dumps({"type": "function", "function": "not a dict"})
+
+        result = _try_parse_tool_json(json_str, 0)
+
+        assert result is None
+
+
+class TestCombinedQwen3Output:
+    """Tests for realistic Qwen3 output: <think> + markdown + tool call."""
+
+    def test_think_plus_markdown_plus_tool_call(self):
+        """Realistic Qwen3 output with <think>, markdown fence, and tool JSON."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '<think>\nOkay, the user wants to know 2+2. I should use python_execute to calculate this.\n</think>\n```json\n{"name": "python_execute", "arguments": {"code": "print(2+2)"}}\n```'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        tool_uses = [b for b in result["content"] if b["type"] == "tool_use"]
+        assert len(tool_uses) == 1
+        assert tool_uses[0]["name"] == "python_execute"
+        assert tool_uses[0]["input"]["code"] == "print(2+2)"
+        # Think content should not be in output
+        for b in result["content"]:
+            if b["type"] == "text":
+                assert "<think>" not in b["text"]
+
+    def test_think_plus_tool_call_tags(self):
+        """Qwen3 output: <think> followed by <tool_call> tags."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '<think>\nAnalyzing the request...\n</think>\n<tool_call>\n{"name": "ffmpeg_process", "arguments": {"input_path": "video.mp4", "output_path": "trimmed.mp4", "operation": "trim", "params": {"start": "0", "duration": "10"}}}\n</tool_call>'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        tool_uses = [b for b in result["content"] if b["type"] == "tool_use"]
+        assert len(tool_uses) == 1
+        assert tool_uses[0]["name"] == "ffmpeg_process"
+        assert tool_uses[0]["input"]["params"]["duration"] == "10"
+
+    def test_think_plus_markdown_plus_tool_key(self):
+        """Combined: <think> + code fence + 'tool' key (instead of 'name')."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '<think>\nI need to run some Python code.\n</think>\n```json\n{"tool": "python_execute", "arguments": {"code": "print(42)"}}\n```'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["name"] == "python_execute"
+        assert result["content"][0]["input"]["code"] == "print(42)"
+
+    def test_end_to_end_qwen3_with_bridge(self):
+        """Full pipeline: bridge returns Qwen3-style output with <think> block."""
+        from navixmind.agent import LocalLLMClient
+
+        client = LocalLLMClient("qwen3-4b")
+
+        bridge_response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '<think>\nOkay, the user asks what is 2+2. I should use the python_execute tool.\n</think>\n```json\n{"name": "python_execute", "arguments": {"code": "print(2+2)"}}\n```'
+            }],
+            "usage": {"input_tokens": 140, "output_tokens": 80}
+        }
+
+        with patch('navixmind.agent.get_bridge') as mock_bridge_fn:
+            mock_bridge = MagicMock()
+            mock_bridge_fn.return_value = mock_bridge
+            mock_bridge.call_native.return_value = {
+                "response": json.dumps(bridge_response)
+            }
+
+            result = client.create_message(
+                messages=[{"role": "user", "content": "what is 2+2"}],
+            )
+
+        assert result["stop_reason"] == "tool_use"
+        tool_uses = [b for b in result["content"] if b["type"] == "tool_use"]
+        assert len(tool_uses) == 1
+        assert tool_uses[0]["name"] == "python_execute"
+        assert tool_uses[0]["input"]["code"] == "print(2+2)"
+
+
+class TestToolCallNestedJSON:
+    """Tests for <tool_call> tags with nested JSON arguments."""
+
+    def test_tool_call_tags_deeply_nested_params(self):
+        """<tool_call> with 3 levels of nested braces."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '<tool_call>\n{"name": "ffmpeg_process", "arguments": {"input_path": "v.mp4", "output_path": "out.mp4", "operation": "filter", "params": {"vf": "eq=brightness=0.06:contrast=1.2", "af": "volume=2.0"}}}\n</tool_call>'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["name"] == "ffmpeg_process"
+        assert result["content"][0]["input"]["params"]["vf"] == "eq=brightness=0.06:contrast=1.2"
+        assert result["content"][0]["input"]["params"]["af"] == "volume=2.0"
+
+    def test_tool_call_tags_with_code_containing_braces(self):
+        """<tool_call> with Python code that has dict literals."""
+        from navixmind.agent import LocalLLMClient
+
+        code = 'data = {"a": 1, "b": 2}\nprint(data)'
+        tool_json = json.dumps({
+            "name": "python_execute",
+            "arguments": {"code": code}
+        })
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": f'<tool_call>\n{tool_json}\n</tool_call>'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["name"] == "python_execute"
+        assert result["content"][0]["input"]["code"] == code
+
+    def test_tool_call_tags_triple_nesting(self):
+        """<tool_call> with triple-nested objects."""
+        from navixmind.agent import LocalLLMClient
+
+        response = {
+            "stop_reason": "end_turn",
+            "content": [{
+                "type": "text",
+                "text": '<tool_call>\n{"name": "python_execute", "arguments": {"code": "d = {}", "metadata": {"config": {"depth": 3}}}}\n</tool_call>'
+            }],
+        }
+
+        result = LocalLLMClient._parse_tool_calls_from_text(response)
+
+        assert result["stop_reason"] == "tool_use"
+        assert result["content"][0]["name"] == "python_execute"
+        assert result["content"][0]["input"]["metadata"]["config"]["depth"] == 3

@@ -388,7 +388,7 @@ def _extract_json_objects(text: str) -> List[str]:
                         depth -= 1
                         if depth == 0:
                             candidate = text[start:i + 1]
-                            if '"name"' in candidate and '"arguments"' in candidate:
+                            if ('"name"' in candidate or '"tool"' in candidate) and '"arguments"' in candidate:
                                 results.append(candidate)
                             found_complete = True
                             i += 1
@@ -397,11 +397,11 @@ def _extract_json_objects(text: str) -> List[str]:
             # If we reached end of text with unclosed braces, try to repair
             if not found_complete and depth > 0:
                 candidate = text[start:i]
-                if '"name"' in candidate and '"arguments"' in candidate:
+                if ('"name"' in candidate or '"tool"' in candidate) and '"arguments"' in candidate:
                     repaired = candidate + '}' * depth
                     try:
                         parsed = json.loads(repaired)
-                        if isinstance(parsed, dict) and 'name' in parsed and 'arguments' in parsed:
+                        if isinstance(parsed, dict) and ('name' in parsed or 'tool' in parsed) and 'arguments' in parsed:
                             results.append(repaired)
                     except (json.JSONDecodeError, ValueError):
                         pass
@@ -414,8 +414,14 @@ def _try_parse_tool_json(json_str: str, index: int) -> Optional[dict]:
     """Try to parse a JSON string as a tool call. Returns tool_use block or None."""
     try:
         call_data = json.loads(json_str)
-        name = call_data.get('name', '')
+        name = call_data.get('name') or call_data.get('tool', '')
         arguments = call_data.get('arguments', {})
+        # Handle OpenAI function calling format: {"type":"function","function":{"name":"...","arguments":{...}}}
+        if not name and 'function' in call_data:
+            func = call_data['function']
+            if isinstance(func, dict):
+                name = func.get('name', '')
+                arguments = func.get('arguments', arguments)
         if isinstance(arguments, str):
             try:
                 arguments = json.loads(arguments)
@@ -555,17 +561,35 @@ class LocalLLMClient:
                 continue
 
             text = block.get('text', '')
+
+            # Strip <think>...</think> blocks (Qwen3 extended thinking)
+            text = re.sub(r'<think>[\s\S]*?</think>', '', text).strip()
+
+            # Strip markdown code fences that wrap JSON
+            text = re.sub(r'```(?:json|python)?\s*', '', text)
+            text = re.sub(r'```', '', text)
+            text = text.strip()
+
             tool_use_blocks = []
             remaining = text
 
             # Try 1: Match <tool_call>...</tool_call> blocks (Hermes format)
-            tc_pattern = r'<tool_call>\s*(\{.*?\})\s*</tool_call>'
+            tc_pattern = r'<tool_call>\s*([\s\S]*?)\s*</tool_call>'
             tc_matches = re.findall(tc_pattern, text, re.DOTALL)
             if tc_matches:
                 for i, match in enumerate(tc_matches):
-                    parsed = _try_parse_tool_json(match, i)
-                    if parsed:
-                        tool_use_blocks.append(parsed)
+                    # Use _extract_json_objects for robust nested-brace parsing
+                    json_objects = _extract_json_objects(match)
+                    if json_objects:
+                        for j, obj in enumerate(json_objects):
+                            parsed = _try_parse_tool_json(obj, i * 10 + j)
+                            if parsed:
+                                tool_use_blocks.append(parsed)
+                    else:
+                        # Fallback: try the raw match directly
+                        parsed = _try_parse_tool_json(match.strip(), i)
+                        if parsed:
+                            tool_use_blocks.append(parsed)
                 remaining = re.sub(tc_pattern, '', text, flags=re.DOTALL).strip()
 
             # Try 2: Raw JSON with "name" and "arguments" keys
