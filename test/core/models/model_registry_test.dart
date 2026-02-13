@@ -290,8 +290,8 @@ void main() {
   });
 
   group('ModelRegistry — offline models', () {
-    test('has 3 offline models', () {
-      expect(ModelRegistry.offlineModels.length, 3);
+    test('has 5 offline models', () {
+      expect(ModelRegistry.offlineModels.length, 5);
     });
 
     test('all offline models have offline provider', () {
@@ -331,7 +331,13 @@ void main() {
 
     test('offline model IDs are correct', () {
       final ids = ModelRegistry.offlineModels.map((m) => m.id).toList();
-      expect(ids, ['qwen2.5-coder-0.5b', 'qwen2.5-coder-1.5b', 'qwen2.5-coder-3b']);
+      expect(ids, [
+        'qwen2.5-coder-0.5b',
+        'qwen2.5-coder-1.5b',
+        'qwen2.5-coder-3b',
+        'ministral-3-3b',
+        'qwen3-4b',
+      ]);
     });
 
     test('offline models are sorted by size', () {
@@ -362,12 +368,6 @@ void main() {
       expect(gb, closeTo(1.8, 0.01));
     });
 
-    test('huggingFaceRepo contains alexandertaboriskiy prefix', () {
-      for (final model in ModelRegistry.offlineModels) {
-        expect(model.huggingFaceRepo, startsWith('alexandertaboriskiy/'));
-      }
-    });
-
     test('all offline models have a licenseName', () {
       for (final model in ModelRegistry.offlineModels) {
         expect(model.licenseName, isNotNull);
@@ -388,6 +388,42 @@ void main() {
     test('qwen3b is research-only with Qwen Research License', () {
       expect(ModelRegistry.qwen3b.isResearchOnly, isTrue);
       expect(ModelRegistry.qwen3b.licenseName, 'Qwen Research License');
+    });
+
+    test('ministral3b properties are correct', () {
+      expect(ModelRegistry.ministral3b.id, 'ministral-3-3b');
+      expect(ModelRegistry.ministral3b.displayName, 'Ministral 3B');
+      expect(ModelRegistry.ministral3b.provider, ModelProvider.offline);
+      expect(ModelRegistry.ministral3b.huggingFaceRepo,
+          'alexandertaboriskiy/Ministral-3-3B-Instruct-2512-q4f16_0-MLC');
+      expect(ModelRegistry.ministral3b.mlcModelLib, 'ministral3_q4f16_0_68e08feb72d08c3826f6a0b3623b81fc');
+      expect(ModelRegistry.ministral3b.estimatedSizeBytes, 1946443381);
+      expect(ModelRegistry.ministral3b.licenseName, 'Apache-2.0');
+      expect(ModelRegistry.ministral3b.isResearchOnly, isFalse);
+    });
+
+    test('ministral3b estimated size is ~1.81 GB', () {
+      final bytes = ModelRegistry.ministral3b.estimatedSizeBytes!;
+      final gb = bytes / (1024 * 1024 * 1024);
+      expect(gb, closeTo(1.81, 0.02));
+    });
+
+    test('qwen3_4b properties are correct', () {
+      expect(ModelRegistry.qwen3_4b.id, 'qwen3-4b');
+      expect(ModelRegistry.qwen3_4b.displayName, 'Qwen3 4B');
+      expect(ModelRegistry.qwen3_4b.provider, ModelProvider.offline);
+      expect(ModelRegistry.qwen3_4b.huggingFaceRepo,
+          'alexandertaboriskiy/Qwen3-4B-q4f16_0-MLC');
+      expect(ModelRegistry.qwen3_4b.mlcModelLib, 'qwen3_q4f16_0_744427a6c2d881a41e79d0bfb2a540dc');
+      expect(ModelRegistry.qwen3_4b.estimatedSizeBytes, 2278983910);
+      expect(ModelRegistry.qwen3_4b.licenseName, 'Apache-2.0');
+      expect(ModelRegistry.qwen3_4b.isResearchOnly, isFalse);
+    });
+
+    test('qwen3_4b estimated size is ~2.12 GB', () {
+      final bytes = ModelRegistry.qwen3_4b.estimatedSizeBytes!;
+      final gb = bytes / (1024 * 1024 * 1024);
+      expect(gb, closeTo(2.12, 0.03));
     });
   });
 
@@ -436,6 +472,8 @@ void main() {
       expect(ModelRegistry.getById('qwen2.5-coder-0.5b')?.id, 'qwen2.5-coder-0.5b');
       expect(ModelRegistry.getById('qwen2.5-coder-1.5b')?.id, 'qwen2.5-coder-1.5b');
       expect(ModelRegistry.getById('qwen2.5-coder-3b')?.id, 'qwen2.5-coder-3b');
+      expect(ModelRegistry.getById('ministral-3-3b')?.id, 'ministral-3-3b');
+      expect(ModelRegistry.getById('qwen3-4b')?.id, 'qwen3-4b');
     });
 
     test('returns null for unknown ID', () {
@@ -576,34 +614,61 @@ void main() {
   });
 
   group('ModelRegistry — HuggingFace repo URLs', () {
-    test('all offline model repos start with alexandertaboriskiy/', () {
+    test('all offline model repos have a valid org/repo format', () {
       for (final model in ModelRegistry.offlineModels) {
-        expect(model.huggingFaceRepo, startsWith('alexandertaboriskiy/'),
-            reason: '${model.id} repo should start with alexandertaboriskiy/');
+        expect(model.huggingFaceRepo, contains('/'),
+            reason: '${model.id} repo should contain org/repo separator');
+        expect(model.huggingFaceRepo, contains('-MLC'),
+            reason: '${model.id} repo should end with -MLC');
       }
     });
 
-    test('all offline model repos contain q4f16_0-MLC', () {
-      for (final model in ModelRegistry.offlineModels) {
-        expect(model.huggingFaceRepo, contains('q4f16_0-MLC'),
-            reason: '${model.id} repo should contain q4f16_0-MLC');
-      }
+    test('Qwen2.5 repos use alexandertaboriskiy prefix', () {
+      expect(ModelRegistry.qwen05b.huggingFaceRepo, startsWith('alexandertaboriskiy/'));
+      expect(ModelRegistry.qwen15b.huggingFaceRepo, startsWith('alexandertaboriskiy/'));
+      expect(ModelRegistry.qwen3b.huggingFaceRepo, startsWith('alexandertaboriskiy/'));
+    });
+
+    test('newer models use alexandertaboriskiy prefix', () {
+      expect(ModelRegistry.ministral3b.huggingFaceRepo, startsWith('alexandertaboriskiy/'));
+      expect(ModelRegistry.qwen3_4b.huggingFaceRepo, startsWith('alexandertaboriskiy/'));
     });
 
     test('all offline model repos contain display-relevant model name', () {
-      // Each repo should contain the Qwen model variant name
       expect(ModelRegistry.qwen05b.huggingFaceRepo, contains('Qwen2.5-Coder-0.5B'));
       expect(ModelRegistry.qwen15b.huggingFaceRepo, contains('Qwen2.5-Coder-1.5B'));
       expect(ModelRegistry.qwen3b.huggingFaceRepo, contains('Qwen2.5-Coder-3B'));
+      expect(ModelRegistry.ministral3b.huggingFaceRepo, contains('Ministral-3-3B'));
+      expect(ModelRegistry.qwen3_4b.huggingFaceRepo, contains('Qwen3-4B'));
     });
   });
 
   group('ModelRegistry — mlcModelLib consistency', () {
-    test('all mlcModelLib values start with qwen2_q4f16_0_', () {
+    test('all mlcModelLib values are non-empty', () {
       for (final model in ModelRegistry.offlineModels) {
-        expect(model.mlcModelLib, startsWith('qwen2_q4f16_0_'),
-            reason: '${model.id} mlcModelLib should start with qwen2_q4f16_0_');
+        expect(model.mlcModelLib, isNotNull,
+            reason: '${model.id} mlcModelLib should not be null');
+        expect(model.mlcModelLib, isNotEmpty,
+            reason: '${model.id} mlcModelLib should not be empty');
       }
+    });
+
+    test('Qwen2.5 mlcModelLib values have full hash suffix', () {
+      expect(ModelRegistry.qwen05b.mlcModelLib, startsWith('qwen2_q4f16_0_'));
+      expect(ModelRegistry.qwen15b.mlcModelLib, startsWith('qwen2_q4f16_0_'));
+      expect(ModelRegistry.qwen3b.mlcModelLib, startsWith('qwen2_q4f16_0_'));
+      // These have the full 32-char hex hash
+      for (final model in [ModelRegistry.qwen05b, ModelRegistry.qwen15b, ModelRegistry.qwen3b]) {
+        expect(model.mlcModelLib!.length, greaterThanOrEqualTo(30),
+            reason: '${model.id} mlcModelLib should have full hash suffix');
+      }
+    });
+
+    test('newer models have full mlcModelLib values with hash', () {
+      expect(ModelRegistry.ministral3b.mlcModelLib,
+          'ministral3_q4f16_0_68e08feb72d08c3826f6a0b3623b81fc');
+      expect(ModelRegistry.qwen3_4b.mlcModelLib,
+          'qwen3_q4f16_0_744427a6c2d881a41e79d0bfb2a540dc');
     });
 
     test('all mlcModelLib values are unique', () {
@@ -612,14 +677,6 @@ void main() {
           .toSet();
       expect(libs.length, ModelRegistry.offlineModels.length,
           reason: 'Each offline model must have a unique mlcModelLib');
-    });
-
-    test('mlcModelLib is at least 30 chars (prefix + 32-char hex hash)', () {
-      for (final model in ModelRegistry.offlineModels) {
-        expect(model.mlcModelLib!.length, greaterThanOrEqualTo(30),
-            reason: '${model.id} mlcModelLib should be at least 30 chars '
-                '(prefix "qwen2_q4f16_0_" = 14 chars + 32-char hash = 46)');
-      }
     });
   });
 

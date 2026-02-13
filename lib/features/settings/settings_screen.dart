@@ -109,6 +109,31 @@ void _registerExtraLicenses() {
               'used to endorse or promote products derived from this software without '
               'specific prior written permission.\n\n'
               'THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS".'),
+      ('pandas', 'BSD-3-Clause',
+          'Copyright (c) 2008-2024 AQR Capital Management, LLC, Lambda Foundry, Inc. '
+              'and PyData Development Team\n\n'
+              'Redistribution and use in source and binary forms, with or without '
+              'modification, are permitted provided that the following conditions are met:\n\n'
+              '1. Redistributions of source code must retain the above copyright notice.\n'
+              '2. Redistributions in binary form must reproduce the above copyright notice.\n'
+              '3. Neither the name of the project nor the names of its contributors may be '
+              'used to endorse or promote products derived from this software without '
+              'specific prior written permission.\n\n'
+              'THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS".'),
+      ('matplotlib', 'PSF-based',
+          'Copyright (c) 2012-2024 Matplotlib Development Team\n\n'
+              'Matplotlib is licensed under the terms of a license based on the '
+              'Python Software Foundation (PSF) license.\n\n'
+              '1. This LICENSE AGREEMENT is between the Matplotlib Development Team '
+              'and the Individual or Organization ("Licensee") accessing and otherwise '
+              'using matplotlib software in source or binary form and its associated '
+              'documentation.\n\n'
+              '2. Subject to the terms and conditions of this License Agreement, the '
+              'Matplotlib Development Team hereby grants Licensee a nonexclusive, '
+              'royalty-free, world-wide license to reproduce, analyze, test, perform '
+              'and/or display publicly, prepare derivative works, distribute, and '
+              'otherwise use matplotlib alone or in any derivative version.\n\n'
+              'https://matplotlib.org/stable/users/project/license.html'),
       ('python-dateutil', 'Apache-2.0 / BSD',
           'Copyright (c) Gustavo Niemeyer, Paul Ganssle\n\n'
               'Licensed under the Apache License, Version 2.0, or the BSD 3-Clause License, '
@@ -185,6 +210,24 @@ void _registerExtraLicenses() {
               'WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.'),
       ('Qwen2.5-Coder 0.5B / 1.5B', 'Apache-2.0',
           'Copyright (c) 2024 Alibaba Cloud\n\n'
+              'Licensed under the Apache License, Version 2.0 (the "License"); '
+              'you may not use this file except in compliance with the License. '
+              'You may obtain a copy of the License at\n\n'
+              '    http://www.apache.org/licenses/LICENSE-2.0\n\n'
+              'Unless required by applicable law or agreed to in writing, software '
+              'distributed under the License is distributed on an "AS IS" BASIS, '
+              'WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.'),
+      ('Ministral-3-3B-Instruct', 'Apache-2.0',
+          'Copyright (c) 2024-2025 Mistral AI\n\n'
+              'Licensed under the Apache License, Version 2.0 (the "License"); '
+              'you may not use this file except in compliance with the License. '
+              'You may obtain a copy of the License at\n\n'
+              '    http://www.apache.org/licenses/LICENSE-2.0\n\n'
+              'Unless required by applicable law or agreed to in writing, software '
+              'distributed under the License is distributed on an "AS IS" BASIS, '
+              'WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.'),
+      ('Qwen3 4B', 'Apache-2.0',
+          'Copyright (c) 2025 Alibaba Cloud\n\n'
               'Licensed under the Apache License, Version 2.0 (the "License"); '
               'you may not use this file except in compliance with the License. '
               'You may obtain a copy of the License at\n\n'

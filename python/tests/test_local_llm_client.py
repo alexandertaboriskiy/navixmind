@@ -295,39 +295,79 @@ class TestSelectModelOffline:
     def test_qwen_model_returns_as_is(self):
         from navixmind.agent import _select_model
 
-        model, reason = _select_model("test query", {"preferred_model": "qwen2.5-coder-0.5b"})
+        model, reason = _select_model("test query", {
+            "preferred_model": "qwen2.5-coder-0.5b",
+            "offline_model_info": {"id": "qwen2.5-coder-0.5b"},
+        })
         assert model == "qwen2.5-coder-0.5b"
         assert "offline" in reason.lower()
 
     def test_qwen_15b_model_returns_as_is(self):
         from navixmind.agent import _select_model
 
-        model, reason = _select_model("test query", {"preferred_model": "qwen2.5-coder-1.5b"})
+        model, reason = _select_model("test query", {
+            "preferred_model": "qwen2.5-coder-1.5b",
+            "offline_model_info": {"id": "qwen2.5-coder-1.5b"},
+        })
         assert model == "qwen2.5-coder-1.5b"
 
     def test_qwen_3b_model_returns_as_is(self):
         from navixmind.agent import _select_model
 
-        model, reason = _select_model("test query", {"preferred_model": "qwen2.5-coder-3b"})
+        model, reason = _select_model("test query", {
+            "preferred_model": "qwen2.5-coder-3b",
+            "offline_model_info": {"id": "qwen2.5-coder-3b"},
+        })
         assert model == "qwen2.5-coder-3b"
 
-    def test_qwen_overrides_cost_threshold(self):
+    def test_ministral_model_returns_as_is(self):
+        from navixmind.agent import _select_model
+
+        model, reason = _select_model("test query", {
+            "preferred_model": "ministral-3-3b",
+            "offline_model_info": {"id": "ministral-3-3b"},
+        })
+        assert model == "ministral-3-3b"
+        assert "offline" in reason.lower()
+
+    def test_qwen3_4b_model_returns_as_is(self):
+        from navixmind.agent import _select_model
+
+        model, reason = _select_model("test query", {
+            "preferred_model": "qwen3-4b",
+            "offline_model_info": {"id": "qwen3-4b"},
+        })
+        assert model == "qwen3-4b"
+        assert "offline" in reason.lower()
+
+    def test_offline_overrides_cost_threshold(self):
         """Offline model should be selected even when cost budget is high."""
         from navixmind.agent import _select_model
 
         model, _ = _select_model("test", {
             "preferred_model": "qwen2.5-coder-0.5b",
+            "offline_model_info": {"id": "qwen2.5-coder-0.5b"},
             "cost_percent_used": 95,
         })
         assert model == "qwen2.5-coder-0.5b"
 
-    def test_non_qwen_falls_through(self):
-        """Non-qwen model should use normal selection logic."""
+    def test_non_offline_falls_through(self):
+        """Non-offline model should use normal selection logic."""
         from navixmind.agent import _select_model, DEFAULT_MODEL
 
         model, _ = _select_model("analyze this data", {"preferred_model": "auto"})
         # "analyze" is a complex pattern, should use default model
         assert model == DEFAULT_MODEL
+
+    def test_offline_detection_uses_context_not_name(self):
+        """Offline detection should use offline_model_info, not model name prefix."""
+        from navixmind.agent import _select_model
+
+        # A model name starting with 'qwen' but without offline_model_info
+        # should NOT be treated as offline
+        model, _ = _select_model("test", {"preferred_model": "qwen-fake-cloud"})
+        # Without offline_model_info, it falls through to normal selection
+        assert model != "qwen-fake-cloud"
 
 
 class TestProcessQueryOffline:
@@ -357,7 +397,10 @@ class TestProcessQueryOffline:
 
             result = process_query(
                 user_query="Hello",
-                context={"preferred_model": "qwen2.5-coder-0.5b"},
+                context={
+                    "preferred_model": "qwen2.5-coder-0.5b",
+                    "offline_model_info": {"id": "qwen2.5-coder-0.5b"},
+                },
             )
 
         assert result.get("error") is not True
@@ -415,7 +458,10 @@ class TestProcessQueryOffline:
 
             process_query(
                 user_query="Hello",
-                context={"preferred_model": "qwen2.5-coder-0.5b"},
+                context={
+                    "preferred_model": "qwen2.5-coder-0.5b",
+                    "offline_model_info": {"id": "qwen2.5-coder-0.5b"},
+                },
             )
 
         assert captured_system == OFFLINE_SYSTEM_PROMPT
@@ -487,6 +533,34 @@ class TestOfflineMaxTokens:
         from navixmind.agent import OFFLINE_MAX_TOKENS
 
         assert OFFLINE_MAX_TOKENS['qwen2.5-coder-3b'] == 1024
+
+    def test_ministral_3b_max_tokens(self):
+        from navixmind.agent import OFFLINE_MAX_TOKENS
+
+        assert OFFLINE_MAX_TOKENS['ministral-3-3b'] == 2048
+
+    def test_qwen3_4b_max_tokens(self):
+        from navixmind.agent import OFFLINE_MAX_TOKENS
+
+        assert OFFLINE_MAX_TOKENS['qwen3-4b'] == 2048
+
+    def test_unknown_model_defaults_to_2048(self):
+        from navixmind.agent import OFFLINE_MAX_TOKENS
+
+        assert OFFLINE_MAX_TOKENS.get('unknown-model', 2048) == 2048
+
+    def test_all_known_offline_models_have_max_tokens(self):
+        from navixmind.agent import OFFLINE_MAX_TOKENS
+
+        expected_models = [
+            'qwen2.5-coder-0.5b',
+            'qwen2.5-coder-1.5b',
+            'qwen2.5-coder-3b',
+            'ministral-3-3b',
+            'qwen3-4b',
+        ]
+        for model_id in expected_models:
+            assert model_id in OFFLINE_MAX_TOKENS, f"{model_id} missing from OFFLINE_MAX_TOKENS"
 
 
 class TestOfflineToolsSchema:

@@ -8,9 +8,6 @@ import android.util.Log
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -314,25 +311,27 @@ class MLCInferenceChannel(flutterEngine: FlutterEngine) {
     private fun parseTools(toolsJson: String): List<OpenAIProtocol.ChatTool> {
         val jsonArray = JSONArray(toolsJson)
         val tools = mutableListOf<OpenAIProtocol.ChatTool>()
-        val jsonParser = Json { ignoreUnknownKeys = true }
-
         for (i in 0 until jsonArray.length()) {
             val toolObj = jsonArray.getJSONObject(i)
             val funcObj = toolObj.getJSONObject("function")
             val name = funcObj.getString("name")
             val description = funcObj.optString("description", null)
 
-            // Parse parameters as a full JsonObject to preserve nested schema
-            val paramsJsonObject: JsonObject? = funcObj.optJSONObject("parameters")?.let { paramsObj ->
-                jsonParser.parseToJsonElement(paramsObj.toString()).jsonObject
-            }
+            // Convert parameters JSON object to Map<String, String> for MLC API
+            val paramsMap: Map<String, String> = funcObj.optJSONObject("parameters")?.let { paramsObj ->
+                val map = mutableMapOf<String, String>()
+                for (key in paramsObj.keys()) {
+                    map[key] = paramsObj.get(key).toString()
+                }
+                map
+            } ?: emptyMap()
 
             tools.add(OpenAIProtocol.ChatTool(
                 type = "function",
                 function = OpenAIProtocol.ChatFunction(
                     name = name,
                     description = description,
-                    parameters = paramsJsonObject
+                    parameters = paramsMap
                 )
             ))
         }
@@ -347,7 +346,7 @@ class MLCInferenceChannel(flutterEngine: FlutterEngine) {
     private class ToolCallAccumulator {
         var id: String = "call_${System.currentTimeMillis()}"
         var name: String = ""
-        var arguments: JsonObject? = null
+        var arguments: Map<String, String>? = null
     }
 
     /**
@@ -371,7 +370,7 @@ class MLCInferenceChannel(flutterEngine: FlutterEngine) {
                         put("type", "function")
                         put("function", JSONObject().apply {
                             put("name", tc.name)
-                            put("arguments", tc.arguments?.toString() ?: "{}")
+                            put("arguments", JSONObject(tc.arguments ?: emptyMap<String, String>()).toString())
                         })
                     })
                 }

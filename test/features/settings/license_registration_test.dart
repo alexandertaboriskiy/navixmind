@@ -18,6 +18,8 @@ const _licenseEntries = <(String package, String license)>[
   ('Pillow', 'HPND'),
   ('yt-dlp', 'Unlicense'),
   ('numpy', 'BSD-3-Clause'),
+  ('pandas', 'BSD-3-Clause'),
+  ('matplotlib', 'PSF-based'),
   ('python-dateutil', 'Apache-2.0 / BSD'),
   ('urllib3', 'MIT'),
   // Native / Android
@@ -30,6 +32,8 @@ const _licenseEntries = <(String package, String license)>[
   // On-device LLM inference
   ('MLC LLM', 'Apache-2.0'),
   ('Qwen2.5-Coder 0.5B / 1.5B', 'Apache-2.0'),
+  ('Ministral-3-3B-Instruct', 'Apache-2.0'),
+  ('Qwen3 4B', 'Apache-2.0'),
   ('Qwen2.5-Coder 3B', 'Qwen Research License'),
 ];
 
@@ -125,8 +129,8 @@ void main() {
           reason: 'Guard should prevent duplicate registration');
     });
 
-    test('expected number of extra license entries is 20', () async {
-      expect(_licenseEntries.length, equals(20));
+    test('expected number of extra license entries is 24', () async {
+      expect(_licenseEntries.length, equals(24));
     });
 
     test('each license entry has exactly one package', () async {
@@ -172,6 +176,8 @@ void main() {
         'Pillow',
         'yt-dlp',
         'numpy',
+        'pandas',
+        'matplotlib',
         'python-dateutil',
         'urllib3',
       ];
@@ -193,6 +199,8 @@ void main() {
         'Kotlin Coroutines',
         'MLC LLM',
         'Qwen2.5-Coder 0.5B / 1.5B',
+        'Ministral-3-3B-Instruct',
+        'Qwen3 4B',
         'Qwen2.5-Coder 3B',
       ];
 

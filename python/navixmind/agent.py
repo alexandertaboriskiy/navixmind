@@ -301,6 +301,8 @@ OFFLINE_MAX_TOKENS = {
     'qwen2.5-coder-0.5b': 512,
     'qwen2.5-coder-1.5b': 1024,
     'qwen2.5-coder-3b': 1024,
+    'ministral-3-3b': 2048,
+    'qwen3-4b': 2048,
 }
 
 # Compact system prompt for on-device models.
@@ -814,7 +816,7 @@ def process_query(
 
     # Check if offline model is selected (doesn't need API key)
     preferred = context.get('preferred_model', '')
-    is_offline_model = preferred.startswith('qwen') if preferred else False
+    is_offline_model = 'offline_model_info' in context if context else False
 
     if not api_key and not is_offline_model:
         return {
@@ -838,7 +840,7 @@ def process_query(
     bridge.log(model_reason, level="info")
 
     # Determine if this is an offline model
-    is_offline = selected_model.startswith('qwen')
+    is_offline = 'offline_model_info' in context if context else False
 
     if is_offline:
         # Use simplified system prompt for small models
@@ -1149,7 +1151,7 @@ def _select_model(query: str, context: Dict[str, Any]) -> Tuple[str, str]:
 
     # Check 0: Offline model requested
     requested_model = context.get('preferred_model', '')
-    if requested_model and requested_model.startswith('qwen'):
+    if context.get('offline_model_info'):
         return requested_model, f"Using offline model: {requested_model}"
 
     # Check 1: Cost budget threshold

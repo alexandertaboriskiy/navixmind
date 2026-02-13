@@ -9,14 +9,26 @@
     {
       "model_id": "Qwen2.5-Coder-1.5B-Instruct-q4f16_0-MLC",
       "model_lib": "qwen2_q4f16_0_1be22ffdc6429c5019af9af8dae22086",
-      "model_url": "https://huggingface.co/mlc-ai/Qwen2.5-Coder-1.5B-Instruct-q4f16_0-MLC",
+      "model_url": "https://huggingface.co/alexandertaboriskiy/Qwen2.5-Coder-1.5B-Instruct-q4f16_0-MLC",
       "estimated_vram_bytes": 1200000000
     },
     {
       "model_id": "Qwen2.5-Coder-3B-Instruct-q4f16_0-MLC",
       "model_lib": "qwen2_q4f16_0_ecc0cde57625a5817018e8d547361bb3",
-      "model_url": "https://huggingface.co/mlc-ai/Qwen2.5-Coder-3B-Instruct-q4f16_0-MLC",
+      "model_url": "https://huggingface.co/alexandertaboriskiy/Qwen2.5-Coder-3B-Instruct-q4f16_0-MLC",
       "estimated_vram_bytes": 2200000000
+    },
+    {
+      "model_id": "Ministral-3-3B-Instruct-2512-q4f16_0-MLC",
+      "model_lib": "ministral3_q4f16_0_68e08feb72d08c3826f6a0b3623b81fc",
+      "model_url": "https://huggingface.co/alexandertaboriskiy/Ministral-3-3B-Instruct-2512-q4f16_0-MLC",
+      "estimated_vram_bytes": 2000000000
+    },
+    {
+      "model_id": "Qwen3-4B-q4f16_0-MLC",
+      "model_lib": "qwen3_q4f16_0_744427a6c2d881a41e79d0bfb2a540dc",
+      "model_url": "https://huggingface.co/alexandertaboriskiy/Qwen3-4B-q4f16_0-MLC",
+      "estimated_vram_bytes": 2500000000
     }
   ]
 }

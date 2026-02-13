@@ -130,7 +130,7 @@ class ModelRegistry {
 
   static const cloudModels = [auto, opus, sonnet, haiku];
 
-  // -- Offline models (Qwen2.5-Coder family, MLC LLM quantized) --
+  // -- Offline models (MLC LLM quantized) --
 
   static const qwen05b = ModelInfo(
     id: 'qwen2.5-coder-0.5b',
@@ -166,7 +166,29 @@ class ModelRegistry {
     licenseName: 'Qwen Research License',
   );
 
-  static const offlineModels = [qwen05b, qwen15b, qwen3b];
+  static const ministral3b = ModelInfo(
+    id: 'ministral-3-3b',
+    displayName: 'Ministral 3B',
+    description: 'Newest, edge-optimized — native tool calling',
+    provider: ModelProvider.offline,
+    huggingFaceRepo: 'alexandertaboriskiy/Ministral-3-3B-Instruct-2512-q4f16_0-MLC',
+    mlcModelLib: 'ministral3_q4f16_0_68e08feb72d08c3826f6a0b3623b81fc',
+    estimatedSizeBytes: 1946443381, // 1.95 GB
+    licenseName: 'Apache-2.0',
+  );
+
+  static const qwen3_4b = ModelInfo(
+    id: 'qwen3-4b',
+    displayName: 'Qwen3 4B',
+    description: 'Best quality, /think mode — strongest tool use',
+    provider: ModelProvider.offline,
+    huggingFaceRepo: 'alexandertaboriskiy/Qwen3-4B-q4f16_0-MLC',
+    mlcModelLib: 'qwen3_q4f16_0_744427a6c2d881a41e79d0bfb2a540dc',
+    estimatedSizeBytes: 2278983910, // 2.28 GB
+    licenseName: 'Apache-2.0',
+  );
+
+  static const offlineModels = [qwen05b, qwen15b, qwen3b, ministral3b, qwen3_4b];
 
   static List<ModelInfo> get allModels => [...cloudModels, ...offlineModels];
 

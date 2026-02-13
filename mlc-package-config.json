@@ -13,7 +13,7 @@
       }
     },
     {
-      "model": "HF://mlc-ai/Qwen2.5-Coder-1.5B-Instruct-q4f16_0-MLC",
+      "model": "HF://alexandertaboriskiy/Qwen2.5-Coder-1.5B-Instruct-q4f16_0-MLC",
       "model_id": "Qwen2.5-Coder-1.5B-Instruct-q4f16_0-MLC",
       "estimated_vram_bytes": 1200000000,
       "bundle_weight": false,
@@ -24,13 +24,35 @@
       }
     },
     {
-      "model": "HF://mlc-ai/Qwen2.5-Coder-3B-Instruct-q4f16_0-MLC",
+      "model": "HF://alexandertaboriskiy/Qwen2.5-Coder-3B-Instruct-q4f16_0-MLC",
       "model_id": "Qwen2.5-Coder-3B-Instruct-q4f16_0-MLC",
       "estimated_vram_bytes": 2200000000,
       "bundle_weight": false,
       "overrides": {
         "prefill_chunk_size": 512,
         "context_window_size": 2048,
+        "max_batch_size": 1
+      }
+    },
+    {
+      "model": "HF://alexandertaboriskiy/Ministral-3-3B-Instruct-2512-q4f16_0-MLC",
+      "model_id": "Ministral-3-3B-Instruct-2512-q4f16_0-MLC",
+      "estimated_vram_bytes": 2000000000,
+      "bundle_weight": false,
+      "overrides": {
+        "prefill_chunk_size": 1024,
+        "context_window_size": 4096,
+        "max_batch_size": 1
+      }
+    },
+    {
+      "model": "HF://alexandertaboriskiy/Qwen3-4B-q4f16_0-MLC",
+      "model_id": "Qwen3-4B-q4f16_0-MLC",
+      "estimated_vram_bytes": 2500000000,
+      "bundle_weight": false,
+      "overrides": {
+        "prefill_chunk_size": 2048,
+        "context_window_size": 4096,
         "max_batch_size": 1
       }
     }

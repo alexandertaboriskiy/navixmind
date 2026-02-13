@@ -44,7 +44,7 @@ class OpenAIProtocol {
     data class ChatFunction(
         val name: String,
         var description: String? = null,
-        val parameters: JsonObject? = null
+        val parameters: Map<String, String>
     )
 
     @Serializable
@@ -56,7 +56,9 @@ class OpenAIProtocol {
     @Serializable
     data class ChatFunctionCall(
         val name: String,
-        var arguments: JsonObject? = null
+        // NOTE: arguments should be dict str to any codable
+        // for now only allow string output due to typing issues
+        var arguments: Map<String, String>? = null
     )
 
     @Serializable
