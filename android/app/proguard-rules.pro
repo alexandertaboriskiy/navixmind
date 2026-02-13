@@ -70,6 +70,17 @@
 -dontwarn com.google.mlkit.vision.text.japanese.**
 -dontwarn com.google.mlkit.vision.text.korean.**
 
+# OkHttp (model downloads)
+-keep class okhttp3.** { *; }
+-dontwarn okhttp3.**
+-dontwarn okio.**
+
+# MLC LLM / TVM runtime (on-device inference)
+-keep class ai.mlc.mlcllm.** { *; }
+-keep class org.apache.tvm.** { *; }
+-keep class kotlinx.serialization.** { *; }
+-dontwarn kotlinx.serialization.**
+
 # Optimize aggressively - remove unused code paths
 -optimizationpasses 5
 -allowaccessmodification

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -6,8 +7,10 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../app/theme.dart';
 import '../../core/constants/defaults.dart';
+import '../../core/models/model_registry.dart';
 import '../../core/services/analytics_service.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/services/local_llm_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/database/database.dart';
 import '../../core/database/collections/api_usage.dart';
@@ -170,6 +173,31 @@ void _registerExtraLicenses() {
               'Unless required by applicable law or agreed to in writing, software '
               'distributed under the License is distributed on an "AS IS" BASIS, '
               'WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.'),
+      // On-device LLM inference
+      ('MLC LLM', 'Apache-2.0',
+          'Copyright (c) 2023-2025 MLC LLM Contributors\n\n'
+              'Licensed under the Apache License, Version 2.0 (the "License"); '
+              'you may not use this file except in compliance with the License. '
+              'You may obtain a copy of the License at\n\n'
+              '    http://www.apache.org/licenses/LICENSE-2.0\n\n'
+              'Unless required by applicable law or agreed to in writing, software '
+              'distributed under the License is distributed on an "AS IS" BASIS, '
+              'WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.'),
+      ('Qwen2.5-Coder 0.5B / 1.5B', 'Apache-2.0',
+          'Copyright (c) 2024 Alibaba Cloud\n\n'
+              'Licensed under the Apache License, Version 2.0 (the "License"); '
+              'you may not use this file except in compliance with the License. '
+              'You may obtain a copy of the License at\n\n'
+              '    http://www.apache.org/licenses/LICENSE-2.0\n\n'
+              'Unless required by applicable law or agreed to in writing, software '
+              'distributed under the License is distributed on an "AS IS" BASIS, '
+              'WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.'),
+      ('Qwen2.5-Coder 3B', 'Qwen Research License',
+          'Copyright (c) 2024 Alibaba Cloud. All Rights Reserved.\n\n'
+              'Qwen2.5-Coder-3B-Instruct is licensed under the Qwen Research License Agreement. '
+              'This license permits non-commercial use only. Commercial use requires a separate '
+              'license from Alibaba Cloud.\n\n'
+              'https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct/blob/main/LICENSE'),
     ];
 
     for (final (package, license, text) in entries) {
@@ -204,12 +232,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _maxTokens = 16384;
   bool _hasCustomPrompt = false;
   bool _selfImproveEnabled = false;
+  Map<String, OfflineModelState> _offlineModelStates = {};
+  StreamSubscription<Map<String, OfflineModelState>>? _offlineStateSubscription;
+  ModelLoadState _modelLoadState = ModelLoadState.unloaded;
+  StreamSubscription<ModelLoadState>? _loadStateSubscription;
+  int _gpuMemoryMB = -1;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _initOfflineModelListener();
+    _queryGpuMemory();
     AnalyticsService.instance.settingsOpened();
+  }
+
+  void _initOfflineModelListener() {
+    _offlineModelStates = LocalLLMService.instance.modelStates;
+    _modelLoadState = LocalLLMService.instance.loadState;
+    _offlineStateSubscription =
+        LocalLLMService.instance.stateStream.listen((states) {
+      if (mounted) {
+        setState(() => _offlineModelStates = states);
+      }
+    });
+    _loadStateSubscription =
+        LocalLLMService.instance.loadStateStream.listen((state) {
+      if (mounted) {
+        setState(() => _modelLoadState = state);
+      }
+    });
+  }
+
+  Future<void> _queryGpuMemory() async {
+    final mb = await LocalLLMService.instance.getGpuMemoryMB();
+    if (mounted && mb > 0) {
+      setState(() => _gpuMemoryMB = mb);
+    }
+  }
+
+  @override
+  void dispose() {
+    _offlineStateSubscription?.cancel();
+    _loadStateSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadSettings() async {
@@ -383,10 +449,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // Model Selection
           _ModelSelector(
-            selectedModel: _preferredModel,
+            selectedModel: _isLoading ? '' : _preferredModel,
+            offlineModelStates: _offlineModelStates,
+            loadedModelId: LocalLLMService.instance.loadedModelId,
+            modelLoadState: _modelLoadState,
+            gpuMemoryMB: _gpuMemoryMB,
             onChanged: (model) async {
               await StorageService.instance.setPreferredModel(model);
               setState(() => _preferredModel = model);
+            },
+            onDownloadModel: (modelId) async {
+              await LocalLLMService.instance.downloadModel(modelId);
+            },
+            onCancelDownload: (modelId) async {
+              await LocalLLMService.instance.cancelDownload(modelId);
+            },
+            onUnloadModel: () async {
+              await LocalLLMService.instance.unloadModel();
+            },
+            onDeleteModel: (modelId) async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Delete Model'),
+                  content: Text(
+                    'Delete ${ModelRegistry.getById(modelId)?.displayName ?? modelId}? '
+                    'You can re-download it later.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: Text(
+                        'Delete',
+                        style: TextStyle(color: NavixTheme.error),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+              if (confirm == true) {
+                await LocalLLMService.instance.deleteModel(modelId);
+                // If the deleted model was selected, switch back to auto
+                if (_preferredModel == modelId) {
+                  await StorageService.instance.setPreferredModel('auto');
+                  setState(() => _preferredModel = 'auto');
+                }
+              }
             },
           ),
 
@@ -793,11 +905,27 @@ class _SettingsTile extends StatelessWidget {
 
 class _ModelSelector extends StatelessWidget {
   final String selectedModel;
+  final Map<String, OfflineModelState> offlineModelStates;
   final ValueChanged<String> onChanged;
+  final ValueChanged<String> onDownloadModel;
+  final ValueChanged<String> onDeleteModel;
+  final ValueChanged<String> onCancelDownload;
+  final String? loadedModelId;
+  final ModelLoadState modelLoadState;
+  final VoidCallback? onUnloadModel;
+  final int gpuMemoryMB;
 
   const _ModelSelector({
     required this.selectedModel,
+    required this.offlineModelStates,
     required this.onChanged,
+    required this.onDownloadModel,
+    required this.onDeleteModel,
+    required this.onCancelDownload,
+    this.loadedModelId,
+    this.modelLoadState = ModelLoadState.unloaded,
+    this.onUnloadModel,
+    this.gpuMemoryMB = -1,
   });
 
   @override
@@ -805,49 +933,47 @@ class _ModelSelector extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Model'),
-                  Text(
-                    _getModelDescription(selectedModel),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: NavixTheme.textSecondary,
-                    ),
+            // Cloud Models section
+            Text(
+              'Cloud Models (API Key Required)',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: NavixTheme.textSecondary,
                   ),
-                ],
-              ),
             ),
-            DropdownButton<String>(
-              value: selectedModel,
-              underline: const SizedBox(),
-              items: const [
-                DropdownMenuItem(
-                  value: 'auto',
-                  child: Text('Auto'),
+            const SizedBox(height: 8),
+            ...ModelRegistry.cloudModels.map(
+              (model) => _buildCloudModelTile(context, model),
+            ),
+
+            const Divider(height: 24),
+
+            // Offline Models section
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Offline Models (On-Device)',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: NavixTheme.textSecondary,
+                        ),
+                  ),
                 ),
-                DropdownMenuItem(
-                  value: 'opus',
-                  child: Text('Opus'),
-                ),
-                DropdownMenuItem(
-                  value: 'sonnet',
-                  child: Text('Sonnet'),
-                ),
-                DropdownMenuItem(
-                  value: 'haiku',
-                  child: Text('Haiku'),
-                ),
+                if (gpuMemoryMB > 0)
+                  Text(
+                    'GPU: ${(gpuMemoryMB / 1024).toStringAsFixed(1)} GB',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: NavixTheme.textTertiary,
+                        ),
+                  ),
               ],
-              onChanged: (value) {
-                if (value != null) {
-                  onChanged(value);
-                }
-              },
+            ),
+            const SizedBox(height: 8),
+            ...ModelRegistry.offlineModels.map(
+              (model) => _buildOfflineModelTile(context, model),
             ),
           ],
         ),
@@ -855,19 +981,372 @@ class _ModelSelector extends StatelessWidget {
     );
   }
 
-  String _getModelDescription(String model) {
-    switch (model) {
-      case 'auto':
-        return 'Opus by default, Haiku when budget is low';
-      case 'opus':
-        return 'Best quality, highest cost';
-      case 'sonnet':
-        return 'Good quality, moderate cost';
-      case 'haiku':
-        return 'Faster, lower cost';
-      default:
-        return '';
+  Widget _buildCloudModelTile(BuildContext context, ModelInfo model) {
+    final isSelected = selectedModel == model.id;
+    return InkWell(
+      onTap: () => onChanged(model.id),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Radio<String>(
+              value: model.id,
+              groupValue: selectedModel,
+              onChanged: (value) {
+                if (value != null) onChanged(value);
+              },
+              activeColor: NavixTheme.primary,
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    model.displayName,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: isSelected
+                              ? NavixTheme.textPrimary
+                              : NavixTheme.textSecondary,
+                          fontWeight:
+                              isSelected ? FontWeight.w600 : FontWeight.w400,
+                        ),
+                  ),
+                  Text(
+                    model.description,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: NavixTheme.textTertiary,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOfflineModelTile(BuildContext context, ModelInfo model) {
+    final state = offlineModelStates[model.id];
+    final downloadState = state?.downloadState ?? ModelDownloadState.notDownloaded;
+    final isDownloaded = downloadState == ModelDownloadState.downloaded;
+    final isSelected = selectedModel == model.id;
+    final estimatedVramMB = (model.estimatedSizeBytes ?? 0) ~/ (1024 * 1024);
+    final tooLargeForGpu = gpuMemoryMB > 0 && estimatedVramMB > gpuMemoryMB;
+
+    return InkWell(
+      onTap: () {
+        if (isDownloaded) {
+          onChanged(model.id);
+        } else {
+          _showDownloadFirstDialog(context, model);
+        }
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Radio<String>(
+              value: model.id,
+              groupValue: isDownloaded ? selectedModel : null,
+              onChanged: isDownloaded
+                  ? (value) {
+                      if (value != null) onChanged(value);
+                    }
+                  : null,
+              activeColor: NavixTheme.primary,
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        model.displayName,
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              color: isSelected && isDownloaded
+                                  ? NavixTheme.textPrimary
+                                  : NavixTheme.textSecondary,
+                              fontWeight: isSelected && isDownloaded
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                            ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '~${model.estimatedSizeFormatted}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: NavixTheme.textTertiary,
+                            ),
+                      ),
+                      if (model.isResearchOnly) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: NavixTheme.warning.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'Research only',
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: NavixTheme.warning,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  Text(
+                    model.description,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: NavixTheme.textTertiary,
+                        ),
+                  ),
+                  if (tooLargeForGpu)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        'May exceed GPU memory (${estimatedVramMB} MB > ${gpuMemoryMB} MB)',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: NavixTheme.error,
+                              fontSize: 11,
+                            ),
+                      ),
+                    ),
+                  const SizedBox(height: 4),
+                  _buildOfflineModelActions(context, model, state),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOfflineModelActions(
+    BuildContext context,
+    ModelInfo model,
+    OfflineModelState? state,
+  ) {
+    final downloadState =
+        state?.downloadState ?? ModelDownloadState.notDownloaded;
+
+    switch (downloadState) {
+      case ModelDownloadState.notDownloaded:
+        return SizedBox(
+          height: 28,
+          child: OutlinedButton.icon(
+            onPressed: () => onDownloadModel(model.id),
+            icon: const Icon(Icons.download, size: 16),
+            label: const Text('Download'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              textStyle: const TextStyle(fontSize: 12),
+              side: BorderSide(color: NavixTheme.primary),
+            ),
+          ),
+        );
+
+      case ModelDownloadState.downloading:
+        final progress = state?.downloadProgress ?? 0.0;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: progress,
+                backgroundColor: NavixTheme.surfaceVariant,
+                valueColor:
+                    AlwaysStoppedAnimation<Color>(NavixTheme.primary),
+                minHeight: 6,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                Text(
+                  '${(progress * 100).toInt()}%',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: NavixTheme.textTertiary,
+                      ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: 24,
+                  child: TextButton(
+                    onPressed: () => onCancelDownload(model.id),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      textStyle: const TextStyle(fontSize: 11),
+                      foregroundColor: NavixTheme.error,
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+
+      case ModelDownloadState.downloaded:
+        final isLoaded = loadedModelId == model.id;
+        final isLoading = isLoaded && modelLoadState == ModelLoadState.loading;
+        return Row(
+          children: [
+            if (isLoading) ...[
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: NavixTheme.primary,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'Loading...',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: NavixTheme.primary,
+                    ),
+              ),
+            ] else if (isLoaded && modelLoadState == ModelLoadState.loaded) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: NavixTheme.success.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  'Loaded',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: NavixTheme.success,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              SizedBox(
+                height: 24,
+                child: TextButton(
+                  onPressed: onUnloadModel,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: const TextStyle(fontSize: 11),
+                    foregroundColor: NavixTheme.textTertiary,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Unload'),
+                ),
+              ),
+            ] else ...[
+              Text(
+                NavixTheme.iconCheck,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: NavixTheme.success,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                state?.diskUsageFormatted ?? '',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: NavixTheme.success,
+                    ),
+              ),
+            ],
+            const SizedBox(width: 8),
+            if (!isLoaded)
+              SizedBox(
+                height: 28,
+                child: TextButton(
+                  onPressed: () => onDeleteModel(model.id),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: const TextStyle(fontSize: 12),
+                    foregroundColor: NavixTheme.error,
+                  ),
+                  child: const Text('Delete'),
+                ),
+              ),
+          ],
+        );
+
+      case ModelDownloadState.error:
+        return Row(
+          children: [
+            Text(
+              NavixTheme.iconError,
+              style: TextStyle(
+                fontSize: 14,
+                color: NavixTheme.error,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                state?.errorMessage ?? 'Download failed',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: NavixTheme.error,
+                    ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 28,
+              child: OutlinedButton(
+                onPressed: () => onDownloadModel(model.id),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  textStyle: const TextStyle(fontSize: 12),
+                  side: BorderSide(color: NavixTheme.primary),
+                ),
+                child: const Text('Retry'),
+              ),
+            ),
+          ],
+        );
     }
+  }
+
+  void _showDownloadFirstDialog(BuildContext context, ModelInfo model) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Download Required'),
+        content: Text(
+          'Download ${model.displayName} (~${model.estimatedSizeFormatted}) '
+          'to use it offline?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              onDownloadModel(model.id);
+            },
+            child: const Text('Download'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

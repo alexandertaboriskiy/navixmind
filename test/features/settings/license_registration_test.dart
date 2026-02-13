@@ -27,6 +27,10 @@ const _licenseEntries = <(String package, String license)>[
   ('ML Kit Face Detection', 'Google APIs Terms of Service'),
   ('Firebase', 'Apache-2.0'),
   ('Kotlin Coroutines', 'Apache-2.0'),
+  // On-device LLM inference
+  ('MLC LLM', 'Apache-2.0'),
+  ('Qwen2.5-Coder 0.5B / 1.5B', 'Apache-2.0'),
+  ('Qwen2.5-Coder 3B', 'Qwen Research License'),
 ];
 
 /// Registers test licenses into [LicenseRegistry].
@@ -121,8 +125,8 @@ void main() {
           reason: 'Guard should prevent duplicate registration');
     });
 
-    test('expected number of extra license entries is 17', () async {
-      expect(_licenseEntries.length, equals(17));
+    test('expected number of extra license entries is 20', () async {
+      expect(_licenseEntries.length, equals(20));
     });
 
     test('each license entry has exactly one package', () async {
@@ -187,6 +191,9 @@ void main() {
         'ML Kit Face Detection',
         'Firebase',
         'Kotlin Coroutines',
+        'MLC LLM',
+        'Qwen2.5-Coder 0.5B / 1.5B',
+        'Qwen2.5-Coder 3B',
       ];
 
       final registered = _licenseEntries.map((e) => e.$1).toList();

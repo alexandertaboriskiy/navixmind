@@ -14,7 +14,7 @@ import requests
 from .bridge import get_bridge, ToolError
 from .session import get_session, apply_delta
 from .crash_logger import CrashLogger
-from .tools import execute_tool, TOOLS_SCHEMA
+from .tools import execute_tool, TOOLS_SCHEMA, OFFLINE_TOOLS_SCHEMA
 
 
 # Constants (defaults, overridden by settings via context)
@@ -294,6 +294,392 @@ class ClaudeClient:
         raise last_error or APIError("Unknown error", 0)
 
 
+# Max tokens per model size for offline inference.
+# Context windows are now 32K for all models.
+# Max output tokens are conservative to keep generation fast on mobile.
+OFFLINE_MAX_TOKENS = {
+    'qwen2.5-coder-0.5b': 512,
+    'qwen2.5-coder-1.5b': 1024,
+    'qwen2.5-coder-3b': 1024,
+}
+
+# Compact system prompt for on-device models.
+# MLC engine's Hermes function calling injection does NOT work at runtime
+# (confirmed: 140 input tokens with use_function_calling=true, no tool defs
+# injected). We must include tool definitions and <tool_call> format directly.
+OFFLINE_SYSTEM_PROMPT = """You are NavixMind, an AI assistant on Android. To use a tool, respond ONLY with:
+<tool_call>
+{"name": "tool_name", "arguments": {"param": "value"}}
+</tool_call>
+
+TOOLS:
+- python_execute(code, file_paths?) — Run Python. Available: math, numpy, pandas, matplotlib, json, re, datetime, statistics, csv, base64, hashlib. Use print() for output. FORBIDDEN: os, sys, subprocess, shutil, socket, pathlib. Do NOT use for FFmpeg — use ffmpeg_process instead.
+- ffmpeg_process(input_path, output_path, operation, params?) — Process video/audio. Operations: trim {start,end/duration}, crop {width,height,x,y}, resize {width,height}, filter {vf,af}, extract_audio {format,bitrate}, extract_frame {timestamp}, convert {codec,quality}. Returns media_duration_seconds and processing_time_ms.
+- smart_crop(input_path, output_path, aspect_ratio?) — Smart crop video/image to focus on faces. Default 9:16.
+- ocr_image(image_path) — Extract text from image via OCR.
+- read_pdf(pdf_path, pages?) — Extract text from PDF.
+- create_pdf(output_path, content?, title?, image_paths?) — Create PDF from text/images.
+- read_file(file_path) — Read a text file.
+- write_file(output_path, content) — Write a text file.
+- file_info(file_path) — Get file size/metadata.
+- create_zip(output_path, file_paths, compression?) — Create ZIP archive.
+- convert_document(input_path, output_format) — Convert between docx/pdf/html/txt.
+- read_docx(docx_path) — Extract text/tables from DOCX.
+- read_pptx(pptx_path) — Extract text/slides from PPTX.
+- read_xlsx(xlsx_path, sheet?, range?) — Extract data from XLSX.
+
+FFMPEG PATTERNS:
+- Trim: operation="trim", params={"start":"00:00:05","duration":"10"} or {"start":"0","end":"30"}
+- Resize: operation="resize", params={"width":720,"height":1280}
+- Extract audio: operation="extract_audio", params={"format":"mp3"}
+- Brightness: operation="filter", params={"vf":"eq=brightness=0.06:contrast=1.2"}
+- Volume up: operation="filter", params={"af":"volume=2.0"}
+- B&W: operation="filter", params={"vf":"hue=s=0"}
+- Speed 2x: operation="filter", params={"vf":"setpts=0.5*PTS","af":"atempo=2.0"}
+- Combine video+audio filters: params={"vf":"eq=brightness=0.06","af":"volume=2.0"}
+- NEVER use % patterns in output filenames. NEVER use operation="custom" for filtering.
+
+RULES:
+- Always call a tool to fulfill requests. Never just describe what you would do.
+- Use file basenames (e.g. "video.mp4") — paths resolve automatically.
+- ALWAYS include the output file path in your response when creating files.
+- If a tool fails, try an alternative approach before giving up.
+- For simple math, python_execute is fine. For video/audio, use ffmpeg_process.
+
+Example:
+User: what is 2+2?
+Assistant:
+<tool_call>
+{"name": "python_execute", "arguments": {"code": "print(2+2)"}}
+</tool_call>"""
+
+
+def _extract_json_objects(text: str) -> List[str]:
+    """Extract JSON objects from text using brace-counting.
+
+    Handles nested braces correctly (e.g. {"name":"ffmpeg_process","arguments":{"params":{"start":"0"}}}).
+    Also handles malformed JSON with missing trailing braces (common with small 3B models)
+    by appending missing '}' characters and validating with json.loads().
+    Only returns objects that contain both "name" and "arguments" keys.
+    """
+    results = []
+    i = 0
+    while i < len(text):
+        if text[i] == '{':
+            depth = 0
+            start = i
+            in_string = False
+            escape = False
+            found_complete = False
+            while i < len(text):
+                c = text[i]
+                if escape:
+                    escape = False
+                elif c == '\\' and in_string:
+                    escape = True
+                elif c == '"' and not escape:
+                    in_string = not in_string
+                elif not in_string:
+                    if c == '{':
+                        depth += 1
+                    elif c == '}':
+                        depth -= 1
+                        if depth == 0:
+                            candidate = text[start:i + 1]
+                            if '"name"' in candidate and '"arguments"' in candidate:
+                                results.append(candidate)
+                            found_complete = True
+                            i += 1
+                            break
+                i += 1
+            # If we reached end of text with unclosed braces, try to repair
+            if not found_complete and depth > 0:
+                candidate = text[start:i]
+                if '"name"' in candidate and '"arguments"' in candidate:
+                    repaired = candidate + '}' * depth
+                    try:
+                        parsed = json.loads(repaired)
+                        if isinstance(parsed, dict) and 'name' in parsed and 'arguments' in parsed:
+                            results.append(repaired)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+        else:
+            i += 1
+    return results
+
+
+def _try_parse_tool_json(json_str: str, index: int) -> Optional[dict]:
+    """Try to parse a JSON string as a tool call. Returns tool_use block or None."""
+    try:
+        call_data = json.loads(json_str)
+        name = call_data.get('name', '')
+        arguments = call_data.get('arguments', {})
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except (json.JSONDecodeError, ValueError):
+                arguments = {}
+        if not isinstance(arguments, dict):
+            arguments = {}
+        if name:
+            return {
+                "type": "tool_use",
+                "id": f"call_{abs(hash(json_str)) % 10**8:08d}_{index}",
+                "name": name,
+                "input": arguments,
+            }
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return None
+
+
+class LocalLLMClient:
+    """Client for on-device LLM inference via native bridge.
+
+    Same interface as ClaudeClient but calls bridge.call_native('llm_generate')
+    instead of the Claude API. The Kotlin layer handles MLC Engine and converts
+    the response to Claude-compatible format.
+    """
+
+    def __init__(self, model_id: str):
+        self.model_id = model_id
+        self.model = model_id  # For usage tracking compatibility
+
+    def create_message(
+        self,
+        messages: List[Dict[str, Any]],
+        system: str = OFFLINE_SYSTEM_PROMPT,
+        tools: Optional[List[dict]] = None,
+        max_tokens: int = 2048,
+        retry_count: int = 1
+    ) -> dict:
+        """
+        Run inference via the native bridge (MLC LLM engine).
+
+        Converts Claude-format tools to OpenAI format, calls the native bridge,
+        and returns the Claude-compatible response from Kotlin.
+        """
+        bridge = get_bridge()
+
+        # Convert messages: ensure all content is string (OpenAI format)
+        openai_messages = self._convert_messages(messages, system)
+
+        # Convert tools from Claude format to OpenAI function calling format
+        openai_tools = None
+        if tools:
+            openai_tools = self._convert_tools_to_openai(tools)
+
+        # Cap max_tokens by model size
+        model_max = OFFLINE_MAX_TOKENS.get(self.model_id, 2048)
+        max_tokens = min(max_tokens, model_max)
+
+        # Build args for native call
+        args = {
+            'messages_json': json.dumps(openai_messages),
+            'max_tokens': max_tokens,
+            'model_id': self.model_id,
+        }
+        if openai_tools:
+            args['tools_json'] = json.dumps(openai_tools)
+
+        # Call native with longer timeout for local inference (model loading can take 30-60s)
+        try:
+            result = bridge.call_native('llm_generate', args, timeout_ms=300000)
+        except TimeoutError:
+            raise APIError("Local model inference timed out after 300s", 408)
+        except ToolError as e:
+            raise APIError(f"Local inference error: {e}", 500)
+
+        response_json = result.get('response', '{}')
+
+        try:
+            response = json.loads(response_json)
+        except json.JSONDecodeError:
+            # Garbled output fallback — treat as text response
+            CrashLogger.log_error("local_llm_parse", Exception(f"Failed to parse: {response_json[:200]}"))
+            response = {
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": response_json}],
+                "usage": {"input_tokens": 0, "output_tokens": 0}
+            }
+
+        # Validate tool calls — small models may produce invalid JSON for tool inputs
+        content = response.get('content', [])
+        sanitized_content = []
+        for block in content:
+            if block.get('type') == 'tool_use':
+                tool_input = block.get('input', {})
+                if not isinstance(tool_input, dict):
+                    # Garbled tool call — convert to text
+                    sanitized_content.append({
+                        "type": "text",
+                        "text": f"I tried to use tool {block.get('name', 'unknown')} but had trouble formatting the request. Let me try differently."
+                    })
+                    # Change stop reason since we removed the tool call
+                    response['stop_reason'] = 'end_turn'
+                    continue
+            sanitized_content.append(block)
+        response['content'] = sanitized_content
+
+        # Parse <tool_call> tags from text content (Hermes function calling format).
+        # Small models may produce tool calls as text instead of structured format,
+        # and MLC engine may return them as text if its parser doesn't catch them.
+        response = self._parse_tool_calls_from_text(response)
+
+        return response
+
+    @staticmethod
+    def _parse_tool_calls_from_text(response: dict) -> dict:
+        """Extract tool calls from text content and convert to tool_use blocks.
+
+        Handles two formats small models may produce:
+        1. Hermes format: <tool_call>{"name":"...", "arguments":{...}}</tool_call>
+        2. Raw JSON: {"name":"...", "arguments":{...}} (without XML tags)
+
+        Both are converted to Claude-format tool_use blocks.
+        """
+        import re
+
+        if response.get('stop_reason') == 'tool_use':
+            return response  # Already has proper tool calls
+
+        content = response.get('content', [])
+        new_content = []
+        found_tool_calls = False
+
+        for block in content:
+            if block.get('type') != 'text':
+                new_content.append(block)
+                continue
+
+            text = block.get('text', '')
+            tool_use_blocks = []
+            remaining = text
+
+            # Try 1: Match <tool_call>...</tool_call> blocks (Hermes format)
+            tc_pattern = r'<tool_call>\s*(\{.*?\})\s*</tool_call>'
+            tc_matches = re.findall(tc_pattern, text, re.DOTALL)
+            if tc_matches:
+                for i, match in enumerate(tc_matches):
+                    parsed = _try_parse_tool_json(match, i)
+                    if parsed:
+                        tool_use_blocks.append(parsed)
+                remaining = re.sub(tc_pattern, '', text, flags=re.DOTALL).strip()
+
+            # Try 2: Raw JSON with "name" and "arguments" keys
+            # Use brace-counting to extract complete JSON objects (handles nesting)
+            if not tool_use_blocks:
+                json_matches = _extract_json_objects(text)
+                for i, match in enumerate(json_matches):
+                    parsed = _try_parse_tool_json(match, i)
+                    if parsed:
+                        tool_use_blocks.append(parsed)
+                if tool_use_blocks:
+                    for match in json_matches:
+                        remaining = remaining.replace(match, '', 1)
+                    remaining = remaining.strip()
+
+            if tool_use_blocks:
+                found_tool_calls = True
+                if remaining:
+                    new_content.append({"type": "text", "text": remaining})
+                new_content.extend(tool_use_blocks)
+            else:
+                new_content.append(block)
+
+        if found_tool_calls:
+            response['content'] = new_content
+            response['stop_reason'] = 'tool_use'
+
+        return response
+
+    def _convert_messages(self, messages: List[Dict[str, Any]], system: str) -> List[Dict[str, Any]]:
+        """Convert Claude-format messages to OpenAI chat format.
+
+        MLC engine does NOT support 'tool' role or 'tool_calls' in assistant messages.
+        Instead we flatten:
+        - Assistant tool_use blocks → plain text showing the tool call as <tool_call> JSON
+        - User tool_result blocks → user message with "[Tool Result] ..." text
+        """
+        openai_msgs = []
+
+        # System message first
+        openai_msgs.append({"role": "system", "content": system})
+
+        for msg in messages:
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
+
+            if isinstance(content, str):
+                openai_msgs.append({"role": role, "content": content})
+            elif isinstance(content, list):
+                if role == 'assistant':
+                    # Flatten tool_use blocks into plain text (MLC doesn't support tool_calls)
+                    text_parts = []
+                    for block in content:
+                        if block.get('type') == 'text':
+                            text = block.get('text', '')
+                            if text:
+                                text_parts.append(text)
+                        elif block.get('type') == 'tool_use':
+                            call_json = json.dumps({
+                                "name": block.get('name', ''),
+                                "arguments": block.get('input', {})
+                            })
+                            text_parts.append(f"<tool_call>\n{call_json}\n</tool_call>")
+                    combined = '\n'.join(text_parts)
+                    if combined:
+                        openai_msgs.append({"role": "assistant", "content": combined})
+                elif role == 'user':
+                    # Flatten tool_result blocks into user messages
+                    text_parts = []
+                    for block in content:
+                        if block.get('type') == 'tool_result':
+                            tool_id = block.get('tool_use_id', '')
+                            result_content = block.get('content', '')
+                            is_error = block.get('is_error', False)
+                            prefix = "[Tool Error]" if is_error else "[Tool Result]"
+                            text_parts.append(f"{prefix} (id={tool_id}): {result_content}")
+                        elif isinstance(block, str):
+                            text_parts.append(block)
+                        elif block.get('type') == 'text':
+                            text_parts.append(block.get('text', ''))
+                    combined = '\n'.join(text_parts)
+                    if combined:
+                        openai_msgs.append({"role": "user", "content": combined})
+                else:
+                    # Fallback: join text parts
+                    text = '\n'.join(
+                        b.get('text', str(b)) if isinstance(b, dict) else str(b)
+                        for b in content
+                    )
+                    openai_msgs.append({"role": role, "content": text})
+
+        return openai_msgs
+
+    @staticmethod
+    def _convert_tools_to_openai(claude_tools: List[dict]) -> List[dict]:
+        """Convert Claude tool definitions to OpenAI function calling format.
+
+        Claude format:
+        {"name": "foo", "description": "...", "input_schema": {"type": "object", "properties": {...}}}
+
+        OpenAI format:
+        {"type": "function", "function": {"name": "foo", "description": "...", "parameters": {...}}}
+        """
+        openai_tools = []
+        for tool in claude_tools:
+            openai_tools.append({
+                "type": "function",
+                "function": {
+                    "name": tool.get("name", ""),
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("input_schema", {"type": "object", "properties": {}})
+                }
+            })
+        return openai_tools
+
+
 class APIError(Exception):
     """Error from Claude API."""
 
@@ -426,9 +812,13 @@ def process_query(
     # Get API key (from global storage or environment)
     api_key = get_api_key()
 
-    if not api_key:
+    # Check if offline model is selected (doesn't need API key)
+    preferred = context.get('preferred_model', '')
+    is_offline_model = preferred.startswith('qwen') if preferred else False
+
+    if not api_key and not is_offline_model:
         return {
-            "content": "API key not configured. Please enter your Claude API key to get started.",
+            "content": "API key not configured. Please enter your Claude API key to get started, or select an offline model.",
             "error": True
         }
 
@@ -446,11 +836,20 @@ def process_query(
     # Select appropriate model based on query and context
     selected_model, model_reason = _select_model(user_query, context)
     bridge.log(model_reason, level="info")
-    if system_prompt != SYSTEM_PROMPT:
-        bridge.log("Using custom system prompt", level="info")
 
-    # Create Claude client with selected model
-    client = ClaudeClient(api_key, model=selected_model)
+    # Determine if this is an offline model
+    is_offline = selected_model.startswith('qwen')
+
+    if is_offline:
+        # Use simplified system prompt for small models
+        system_prompt = OFFLINE_SYSTEM_PROMPT
+        client = LocalLLMClient(model_id=selected_model)
+        bridge.log("Using on-device inference", level="info")
+    else:
+        if system_prompt != SYSTEM_PROMPT:
+            bridge.log("Using custom system prompt", level="info")
+        # Create Claude client with selected model
+        client = ClaudeClient(api_key, model=selected_model)
 
     # Build initial messages from session context
     messages = session.get_context_for_llm(MAX_CONTEXT_TOKENS)
@@ -479,6 +878,10 @@ def process_query(
     max_iterations = context.get('max_iterations', DEFAULT_MAX_ITERATIONS)
     max_tool_calls = context.get('max_tool_calls', DEFAULT_MAX_TOOL_CALLS)
     max_tokens = context.get('max_tokens', DEFAULT_MAX_TOKENS)
+
+    # Cap tokens for offline models by model size
+    if is_offline:
+        max_tokens = OFFLINE_MAX_TOKENS.get(selected_model, 2048)
     iteration = 0
     tool_call_count = 0
     final_response = None
@@ -489,14 +892,21 @@ def process_query(
         bridge.log(f"Thinking... (step {iteration}/{max_iterations})", progress=iteration / max_iterations * 0.5)
 
         try:
-            bridge.log("Calling Claude API...", level="info")
+            if is_offline:
+                bridge.log("Running on device...", level="info")
+            else:
+                bridge.log("Calling Claude API...", level="info")
+            tools_schema = OFFLINE_TOOLS_SCHEMA if is_offline else TOOLS_SCHEMA
             response = client.create_message(
                 messages=messages,
                 system=system_prompt,
-                tools=TOOLS_SCHEMA,
+                tools=tools_schema,
                 max_tokens=max_tokens,
             )
-            bridge.log("Got response from Claude", level="info")
+            if is_offline:
+                bridge.log("Got response from model", level="info")
+            else:
+                bridge.log("Got response from Claude", level="info")
         except APIError as e:
             bridge.log(f"API error: {e}", level="error")
             error_msg = _get_user_friendly_error(e)
@@ -737,13 +1147,17 @@ def _select_model(query: str, context: Dict[str, Any]) -> Tuple[str, str]:
     """
     query_lower = query.lower().strip()
 
+    # Check 0: Offline model requested
+    requested_model = context.get('preferred_model', '')
+    if requested_model and requested_model.startswith('qwen'):
+        return requested_model, f"Using offline model: {requested_model}"
+
     # Check 1: Cost budget threshold
     cost_percent_used = context.get('cost_percent_used', 0) or 0
     if cost_percent_used >= COST_THRESHOLD_FOR_HAIKU:
         return FALLBACK_MODEL, f"Using faster model (budget at {cost_percent_used:.1f}%)"
 
     # Check 2: Explicit model request in context
-    requested_model = context.get('preferred_model')
     if requested_model == 'haiku':
         return FALLBACK_MODEL, "Using faster model (user preference)"
     if requested_model == 'sonnet':

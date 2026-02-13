@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../models/model_registry.dart';
 import '../services/auth_service.dart';
 import '../services/cost_manager.dart';
 import '../services/storage_service.dart';
@@ -160,17 +161,21 @@ class PythonBridge {
       throw StateError('Python is not ready. Status: $_status');
     }
 
-    // Check cost limits before processing
+    // Get user's preferred model, tool timeout, and agent limits
+    final preferredModel = await CostManager.instance.getPreferredModel();
+
+    // Check if this is an offline model (no cost limits, no API key needed)
+    final modelInfo = ModelRegistry.getById(preferredModel);
+    final isOfflineModel = modelInfo?.isOffline ?? false;
+
+    // Check cost limits before processing (skip for offline models)
     CostLimitResult? limitResult;
-    if (checkCostLimits) {
+    if (checkCostLimits && !isOfflineModel) {
       limitResult = await CostManager.instance.checkAllLimits();
       if (!limitResult.canProceed) {
         throw CostLimitExceededError(limitResult.message);
       }
     }
-
-    // Get user's preferred model, tool timeout, and agent limits
-    final preferredModel = await CostManager.instance.getPreferredModel();
     final toolTimeout = await StorageService.instance.getToolTimeout();
     final maxIterations = await StorageService.instance.getMaxIterations();
     final maxToolCalls = await StorageService.instance.getMaxToolCalls();
@@ -201,7 +206,11 @@ class PythonBridge {
       'max_tokens': maxTokens,
       'output_dir': outputDir,
       if (googleToken != null) 'google_access_token': googleToken,
-      if (customSystemPrompt != null) 'system_prompt': customSystemPrompt,
+      if (customSystemPrompt != null && !isOfflineModel) 'system_prompt': customSystemPrompt,
+      if (isOfflineModel && modelInfo != null) 'offline_model_info': {
+        'display_name': modelInfo.displayName,
+        'model_lib': modelInfo.mlcModelLib,
+      },
     };
 
     // Copy attached files from cache to persistent storage

@@ -154,4 +154,8 @@ dependencies {
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
     // Required for lStar attribute compatibility
     implementation "androidx.core:core-ktx:1.12.0"
+    // HTTP client for model downloads from HuggingFace
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    // MLC LLM on-device inference engine (Phase 3)
+    implementation project(":mlc4j")
 }

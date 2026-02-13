@@ -1,5 +1,8 @@
 package ai.navixmind
 
+import ai.navixmind.services.MLCInferenceChannel
+import ai.navixmind.services.ModelDownloadChannel
+import android.content.ComponentCallbacks2
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -20,6 +23,8 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
     private lateinit var pythonChannel: PythonMethodChannel
+    private lateinit var modelDownloadChannel: ModelDownloadChannel
+    private lateinit var mlcInferenceChannel: MLCInferenceChannel
     private val FILE_CHANNEL = "ai.navixmind/file_opener"
     private val SHARE_CHANNEL = "ai.navixmind/share_receiver"
 
@@ -40,6 +45,8 @@ class MainActivity : FlutterActivity() {
         }
 
         pythonChannel = PythonMethodChannel(flutterEngine)
+        modelDownloadChannel = ModelDownloadChannel(flutterEngine, applicationContext)
+        mlcInferenceChannel = MLCInferenceChannel(flutterEngine)
 
         // File opener channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, FILE_CHANNEL).setMethodCallHandler { call, result ->
@@ -298,8 +305,19 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (::mlcInferenceChannel.isInitialized) {
+            mlcInferenceChannel.onTrimMemory(level)
+        }
+    }
+
     override fun onDestroy() {
         pythonChannel.cleanup()
+        modelDownloadChannel.cleanup()
+        if (::mlcInferenceChannel.isInitialized) {
+            mlcInferenceChannel.cleanup()
+        }
         super.onDestroy()
     }
 }

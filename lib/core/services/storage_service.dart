@@ -28,6 +28,7 @@ class StorageService {
   static const _keyMaxTokens = 'max_response_tokens';
   static const _keyLegalAccepted = 'legal_accepted';
   static const _keySelfImproveEnabled = 'self_improve_enabled';
+  static const _keyOfflineModelStates = 'offline_model_states';
 
   /// Store Claude API key securely
   Future<void> setApiKey(String key) async {
@@ -213,6 +214,18 @@ class StorageService {
   Future<bool> isSelfImproveEnabled() async {
     final value = await _storage.read(key: _keySelfImproveEnabled);
     return value == 'true';
+  }
+
+  // Offline model state persistence
+
+  /// Store offline model states as JSON string.
+  Future<void> setOfflineModelStates(String jsonString) async {
+    await _storage.write(key: _keyOfflineModelStates, value: jsonString);
+  }
+
+  /// Get stored offline model states JSON, or null if not set.
+  Future<String?> getOfflineModelStates() async {
+    return await _storage.read(key: _keyOfflineModelStates);
   }
 
   // System prompt methods (file-based — prompts can be large)

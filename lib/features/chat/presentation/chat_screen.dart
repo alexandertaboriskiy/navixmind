@@ -8,6 +8,8 @@ import '../../../core/constants/defaults.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/models/model_registry.dart';
+import '../../../core/services/local_llm_service.dart';
 import '../../../core/services/offline_queue_manager.dart';
 import '../../../core/services/share_receiver_service.dart';
 import '../../../core/services/storage_service.dart';
@@ -88,13 +90,22 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> _checkApiKey() async {
     final hasKey = await StorageService.instance.hasApiKey();
+
+    // Check if an offline model is selected and downloaded
+    final preferredModel = await StorageService.instance.getPreferredModel();
+    final modelInfo = ModelRegistry.getById(preferredModel);
+    final isOfflineSelected = modelInfo != null && modelInfo.isOffline;
+    final offlineReady = isOfflineSelected &&
+        LocalLLMService.instance.modelStates[preferredModel]?.downloadState ==
+            ModelDownloadState.downloaded;
+
     setState(() {
       _hasApiKey = hasKey;
-      if (!hasKey) {
+      if (!hasKey && !offlineReady) {
         _awaitingApiKey = true;
         _messages.add(ChatMessage(
           role: MessageRole.system,
-          content: 'Welcome to NavixMind! Please enter your Claude API key to get started.\n\nYou can get one at console.anthropic.com',
+          content: 'Welcome to NavixMind! Please enter your Claude API key to get started.\n\nYou can get one at console.anthropic.com\n\nAlternatively, select an offline model in Settings to run fully on-device.',
           timestamp: DateTime.now(),
         ));
       }
@@ -374,24 +385,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
     _scrollToBottom();
 
-    // If offline, queue the message (fresh check to avoid stale cache)
-    final isOnline = await ConnectivityService.instance.checkConnectivity();
-    if (!isOnline) {
-      await OfflineQueueManager.instance.queueMessage(
-        query: text,
-        attachmentPaths: _attachedFiles.isNotEmpty ? _attachedFiles : null,
-      );
+    // Check if using an offline model (skip connectivity gate)
+    final preferredModel = await StorageService.instance.getPreferredModel();
+    final selectedModelInfo = ModelRegistry.getById(preferredModel);
+    final isUsingOfflineModel = selectedModelInfo?.isOffline ?? false;
 
-      setState(() {
-        _messages.add(ChatMessage(
-          role: MessageRole.system,
-          content: '⏳ Message queued. Will send when online.',
-          timestamp: DateTime.now(),
-        ));
-        _attachedFiles = [];
-      });
-      _scrollToBottom();
-      return;
+    // If offline and not using an on-device model, queue the message
+    if (!isUsingOfflineModel) {
+      final isOnline = await ConnectivityService.instance.checkConnectivity();
+      if (!isOnline) {
+        await OfflineQueueManager.instance.queueMessage(
+          query: text,
+          attachmentPaths: _attachedFiles.isNotEmpty ? _attachedFiles : null,
+        );
+
+        setState(() {
+          _messages.add(ChatMessage(
+            role: MessageRole.system,
+            content: '⏳ Message queued. Will send when online.',
+            timestamp: DateTime.now(),
+          ));
+          _attachedFiles = [];
+        });
+        _scrollToBottom();
+        return;
+      }
     }
 
     // Track message sent
@@ -402,7 +420,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
     setState(() {
       _isProcessing = true;
-      _statusMessage = 'Thinking...';
+      _statusMessage = isUsingOfflineModel ? 'Running on device...' : 'Thinking...';
     });
 
     final stopwatch = Stopwatch()..start();
@@ -593,7 +611,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // Reload self-improve setting (may have changed in Settings)
     _loadSelfImproveSetting();
 
-    // Check if API key was saved via Settings while we were showing the welcome message
+    // Check if API key was saved or offline model selected while in Settings
     if (wasAwaitingApiKey && mounted) {
       final hasKey = await StorageService.instance.hasApiKey();
       if (hasKey) {
@@ -612,6 +630,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
           // Send the API key to Python bridge
           await PythonBridge.instance.setApiKey(apiKey);
+        }
+      } else {
+        // Check if an offline model was selected and downloaded
+        final preferredModel = await StorageService.instance.getPreferredModel();
+        final modelInfo = ModelRegistry.getById(preferredModel);
+        final isOfflineSelected = modelInfo != null && modelInfo.isOffline;
+        final offlineReady = isOfflineSelected &&
+            LocalLLMService.instance.modelStates[preferredModel]?.downloadState ==
+                ModelDownloadState.downloaded;
+        if (offlineReady) {
+          setState(() {
+            _awaitingApiKey = false;
+            _messages.add(ChatMessage(
+              role: MessageRole.system,
+              content: 'Offline model selected! You can now start chatting with NavixMind.',
+              timestamp: DateTime.now(),
+            ));
+          });
+          _scrollToBottom();
         }
       }
     }

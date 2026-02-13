@@ -431,6 +431,195 @@ The code runs with a 30-second timeout. Print statements and the last expression
 ]
 
 
+# Compact tool schemas for offline (on-device) models with small context windows.
+# Includes all tools that work offline. Descriptions kept minimal to conserve tokens.
+OFFLINE_TOOLS_SCHEMA = [
+    {
+        "name": "python_execute",
+        "description": "Run Python code. Available: math, numpy, pandas, matplotlib, json, re, datetime, collections, itertools, statistics, csv, base64, hashlib. Use print() for output. FORBIDDEN: os, sys, subprocess.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Python code to run"},
+                "file_paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Files the code can read"
+                }
+            },
+            "required": ["code"]
+        }
+    },
+    {
+        "name": "ffmpeg_process",
+        "description": "Process video/audio with FFmpeg. Operations: trim, crop, resize, filter, extract_audio, extract_frame, convert. Use this for ALL video/audio processing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "input_path": {"type": "string", "description": "Input file path"},
+                "output_path": {"type": "string", "description": "Output file path"},
+                "operation": {
+                    "type": "string",
+                    "enum": ["trim", "crop", "resize", "filter", "extract_audio", "extract_frame", "convert"],
+                    "description": "Operation to perform"
+                },
+                "params": {
+                    "type": "object",
+                    "description": "trim: {start, end/duration}. crop: {width, height, x, y}. resize: {width, height}. filter: {vf, af}. extract_audio: {format, bitrate}. extract_frame: {timestamp}. convert: {codec, quality}."
+                }
+            },
+            "required": ["input_path", "output_path", "operation"]
+        }
+    },
+    {
+        "name": "smart_crop",
+        "description": "Smart crop video/image to focus on faces. For simple face-centered cropping only.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "input_path": {"type": "string", "description": "Input file path"},
+                "output_path": {"type": "string", "description": "Output file path"},
+                "aspect_ratio": {"type": "string", "default": "9:16", "description": "Target aspect ratio"}
+            },
+            "required": ["input_path", "output_path"]
+        }
+    },
+    {
+        "name": "ocr_image",
+        "description": "Extract text from an image using OCR.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "image_path": {"type": "string", "description": "Path to image"}
+            },
+            "required": ["image_path"]
+        }
+    },
+    {
+        "name": "read_pdf",
+        "description": "Extract text from a PDF file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pdf_path": {"type": "string", "description": "Path to PDF"},
+                "pages": {"type": "string", "description": "Page range, e.g. '1-5' or 'all'"}
+            },
+            "required": ["pdf_path"]
+        }
+    },
+    {
+        "name": "create_pdf",
+        "description": "Create a PDF from text and/or images.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "output_path": {"type": "string", "description": "Where to save PDF"},
+                "content": {"type": "string", "description": "Text content"},
+                "title": {"type": "string", "description": "Document title"},
+                "image_paths": {"type": "array", "items": {"type": "string"}, "description": "Images to embed"}
+            },
+            "required": ["output_path"]
+        }
+    },
+    {
+        "name": "create_zip",
+        "description": "Create ZIP archive from files.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "output_path": {"type": "string", "description": "Where to save ZIP"},
+                "file_paths": {"type": "array", "items": {"type": "string"}, "description": "Files to include"},
+                "compression": {"type": "string", "enum": ["deflated", "stored"], "default": "deflated"}
+            },
+            "required": ["output_path", "file_paths"]
+        }
+    },
+    {
+        "name": "convert_document",
+        "description": "Convert documents between formats (DOCX, PDF, HTML, TXT).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "input_path": {"type": "string", "description": "Input file path"},
+                "output_format": {"type": "string", "enum": ["pdf", "html", "txt"], "description": "Target format"}
+            },
+            "required": ["input_path", "output_format"]
+        }
+    },
+    {
+        "name": "read_docx",
+        "description": "Extract text and tables from a DOCX file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "docx_path": {"type": "string", "description": "Path to DOCX"},
+                "extract": {"type": "string", "enum": ["text", "tables", "all"], "default": "all"}
+            },
+            "required": ["docx_path"]
+        }
+    },
+    {
+        "name": "read_pptx",
+        "description": "Extract text and slide content from a PPTX file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pptx_path": {"type": "string", "description": "Path to PPTX"},
+                "extract": {"type": "string", "enum": ["text", "slides", "notes", "all"], "default": "all"}
+            },
+            "required": ["pptx_path"]
+        }
+    },
+    {
+        "name": "read_xlsx",
+        "description": "Extract data from an XLSX spreadsheet.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "xlsx_path": {"type": "string", "description": "Path to XLSX"},
+                "sheet": {"type": "string", "description": "Sheet name or index"},
+                "range": {"type": "string", "description": "Cell range, e.g. 'A1:D10'"}
+            },
+            "required": ["xlsx_path"]
+        }
+    },
+    {
+        "name": "read_file",
+        "description": "Read text from a file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "File to read"}
+            },
+            "required": ["file_path"]
+        }
+    },
+    {
+        "name": "write_file",
+        "description": "Write text to a file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "output_path": {"type": "string", "description": "Output filename"},
+                "content": {"type": "string", "description": "Content to write"}
+            },
+            "required": ["output_path", "content"]
+        }
+    },
+    {
+        "name": "file_info",
+        "description": "Get file size, name, extension.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "File to inspect"}
+            },
+            "required": ["file_path"]
+        }
+    },
+]
+
+
 def execute_tool(
     tool_name: str,
     args: Dict[str, Any],

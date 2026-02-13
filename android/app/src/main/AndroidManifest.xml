@@ -30,6 +30,11 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:enableOnBackInvokedCallback="true">
 
+        <!-- OpenCL for on-device LLM inference (MLC LLM / TVM runtime) -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-car.so" android:required="false" />
+
         <!-- Disable Firebase auto-initialization (no valid credentials yet) -->
         <provider
             android:name="com.google.firebase.provider.FirebaseInitProvider"

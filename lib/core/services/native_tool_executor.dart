@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit_config.dart';
 import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
@@ -15,7 +16,9 @@ import 'package:path_provider/path_provider.dart';
 
 import '../bridge/bridge.dart';
 import '../bridge/messages.dart';
+import '../models/model_registry.dart';
 import 'analytics_service.dart';
+import 'local_llm_service.dart';
 
 /// Executor for native tools called from Python.
 ///
@@ -85,6 +88,8 @@ class NativeToolExecutor {
         return _executeFaceDetection(args);
       case 'smart_crop':
         return _executeSmartCrop(args);
+      case 'llm_generate':
+        return _executeLLMGenerate(args);
       default:
         throw UnsupportedError('Unknown native tool: $tool');
     }
@@ -348,6 +353,18 @@ class NativeToolExecutor {
         if (vf == null && af == null) {
           throw ArgumentError('Filter requires vf (video filter) or af (audio filter) parameter');
         }
+        // Auto-reclassify: if vf contains audio-only filters (volume, atempo,
+        // aecho, etc.) and af is null, move them to af. Small LLMs often put
+        // audio filters in the vf field by mistake.
+        if (vf != null && af == null) {
+          final vfStr = vf.toString();
+          const audioOnlyFilters = ['volume', 'atempo', 'aecho', 'afade', 'aresample', 'loudnorm'];
+          final isAudioFilter = audioOnlyFilters.any((f) => vfStr.startsWith('$f=') || vfStr.startsWith('$f,') || vfStr == f);
+          if (isAudioFilter) {
+            af = vf;
+            vf = null;
+          }
+        }
         // Sanitize comparison operators (< > <= >=) → lt() gt() lte() gte()
         // to prevent FFmpegKit native crash (SIGSEGV in avfilter_inout_free)
         if (vf != null) vf = _sanitizeFFmpegComparisons(vf.toString());
@@ -428,6 +445,15 @@ class NativeToolExecutor {
     // FFmpegKit's avfilter_inout_free SIGSEGV-crashes on malformed filter graphs.
     _validateFilterComplex(command);
 
+    // If input and output paths are the same, use a temp file then rename.
+    // FFmpeg cannot read and write to the same file simultaneously.
+    String? tempPath;
+    if (inputPath == outputPath) {
+      final ext = outputPath.contains('.') ? outputPath.substring(outputPath.lastIndexOf('.')) : '.mp4';
+      tempPath = '${outputPath.substring(0, outputPath.lastIndexOf('.'))}._tmp$ext';
+      command = command.replaceAll('"$outputPath"', '"$tempPath"');
+    }
+
     // Execute FFmpeg command
     debugPrint('[FFmpeg] Command: $command');
     final startTime = DateTime.now();
@@ -436,6 +462,10 @@ class NativeToolExecutor {
     final duration = DateTime.now().difference(startTime);
 
     if (ReturnCode.isSuccess(returnCode)) {
+      // If we used a temp file, rename it to the actual output path
+      if (tempPath != null) {
+        await File(tempPath).rename(outputPath);
+      }
       // Get output file info
       // If output path contains % (FFmpeg pattern like %03d), find actual generated files
       if (outputPath.contains('%')) {
@@ -495,6 +525,10 @@ class NativeToolExecutor {
       }
       return result;
     } else {
+      // Clean up temp file on failure
+      if (tempPath != null) {
+        try { await File(tempPath).delete(); } catch (_) {}
+      }
       // Extract just the actual error lines, not the full FFmpeg banner
       final logs = await session.getAllLogsAsString() ?? '';
       final errorLines = logs
@@ -1073,6 +1107,60 @@ class NativeToolExecutor {
       'width': cropWidth,
       'height': cropHeight,
     };
+  }
+
+  /// Execute on-device LLM inference via LocalLLMService.
+  ///
+  /// Auto-loads the model if not already loaded.
+  Future<Map<String, dynamic>> _executeLLMGenerate(
+    Map<String, dynamic> args,
+  ) async {
+    final messagesJson = args['messages_json'] as String?;
+    final toolsJson = args['tools_json'] as String?;
+    final maxTokens = args['max_tokens'] as int? ?? 2048;
+    final modelId = args['model_id'] as String?;
+
+    if (messagesJson == null) {
+      throw ArgumentError('Missing messages_json parameter');
+    }
+
+    final llmService = LocalLLMService.instance;
+
+    // Auto-load model if not loaded or if a different model is requested
+    if (modelId != null && llmService.loadedModelId != modelId) {
+      debugPrint('[NativeTool] Auto-loading model: $modelId');
+      await llmService.loadModel(modelId);
+    } else if (llmService.loadedModelId == null) {
+      throw StateError('No model specified and no model loaded');
+    }
+
+    // Run inference — auto-reload if OS evicted the model from GPU
+    try {
+      final responseJson = await llmService.generate(
+        messagesJson,
+        toolsJson: toolsJson,
+        maxTokens: maxTokens,
+      );
+      return {
+        'success': true,
+        'response': responseJson,
+      };
+    } on PlatformException catch (e) {
+      if (e.code == 'NO_MODEL' && modelId != null) {
+        debugPrint('[NativeTool] Model evicted by OS, reloading $modelId...');
+        await llmService.loadModel(modelId);
+        final responseJson = await llmService.generate(
+          messagesJson,
+          toolsJson: toolsJson,
+          maxTokens: maxTokens,
+        );
+        return {
+          'success': true,
+          'response': responseJson,
+        };
+      }
+      rethrow;
+    }
   }
 
   void dispose() {

@@ -126,6 +126,10 @@ test-results/
 # Local build scripts (machine-specific paths)
 build_now.sh
 
+# MLC LLM native libraries (built via mlc_llm package, ~50MB)
+# Rebuild with: mlc_llm package --config mlc-package-config.json
+android/mlc4j/output/
+
 # Firebase deployment cache
 www/.firebase/
 www/.firebaserc
