@@ -341,6 +341,106 @@ class TestSelfImproveMetaPrompt(unittest.TestCase):
         self.assertIn("tool name", meta_prompt_text.lower())
 
 
+class TestInteractiveHtmlGamesSection(unittest.TestCase):
+    """System prompt must include interactive HTML/games guidance."""
+
+    def test_prompt_contains_html_games_section(self):
+        """INTERACTIVE HTML & GAMES section must be present."""
+        self.assertIn("INTERACTIVE HTML & GAMES", SYSTEM_PROMPT)
+
+    def test_prompt_mentions_viewport_meta(self):
+        """Must include viewport meta tag instruction."""
+        self.assertIn("viewport", SYSTEM_PROMPT)
+        self.assertIn("user-scalable=no", SYSTEM_PROMPT)
+
+    def test_prompt_mentions_fullscreen(self):
+        """Must mention fullscreen layout with 100dvw/100dvh."""
+        self.assertIn("100dvw/100dvh", SYSTEM_PROMPT)
+
+    def test_prompt_mentions_touch_events(self):
+        """Must mention touch events for mobile responsiveness."""
+        self.assertIn("touchstart", SYSTEM_PROMPT)
+        self.assertIn("touchend", SYSTEM_PROMPT)
+        self.assertIn("touchmove", SYSTEM_PROMPT)
+
+    def test_prompt_mentions_play_area_interactions(self):
+        """Must include PLAY AREA INTERACTIONS section."""
+        self.assertIn("PLAY AREA INTERACTIONS", SYSTEM_PROMPT)
+
+    def test_prompt_mentions_regenerate_html(self):
+        """Must instruct to regenerate complete HTML on modifications."""
+        self.assertIn("rewrite the full file", SYSTEM_PROMPT)
+        self.assertIn("regenerate the COMPLETE HTML", SYSTEM_PROMPT)
+
+    def test_prompt_mentions_overflow_hidden(self):
+        """Must mention overflow: hidden for no-scroll layout."""
+        self.assertIn("overflow: hidden", SYSTEM_PROMPT)
+
+    def test_prompt_no_scroll(self):
+        """Must instruct to never require scrolling."""
+        self.assertIn("never require scrolling", SYSTEM_PROMPT)
+
+    def test_prompt_no_large_titles(self):
+        """Must instruct to avoid large titles wasting screen space."""
+        self.assertIn("NO large titles", SYSTEM_PROMPT)
+
+    def test_prompt_no_separate_controls(self):
+        """Must instruct to integrate controls into play area, not separate D-pad."""
+        self.assertIn("Do NOT use separate on-screen controls", SYSTEM_PROMPT)
+
+    def test_prompt_touch_gesture_controls(self):
+        """Must describe tap/swipe relative to player for directional games."""
+        self.assertIn("tap right of snake = move right", SYSTEM_PROMPT)
+
+    def test_prompt_visual_feedback_on_tap(self):
+        """Must instruct to give visual feedback on tap."""
+        self.assertIn("visual feedback", SYSTEM_PROMPT)
+
+    def test_prompt_write_file_on_modify(self):
+        """Must instruct to always use write_file when creating/modifying files."""
+        self.assertIn("ALWAYS call write_file", SYSTEM_PROMPT)
+
+
+class TestFFmpegRetryGuidance(unittest.TestCase):
+    """System prompt must include FFmpeg retry limit guidance."""
+
+    def test_prompt_mentions_ffmpeg_retry_limit(self):
+        """Must mention limiting FFmpeg retries."""
+        self.assertIn("2 failed FFmpeg attempts", SYSTEM_PROMPT)
+
+    def test_prompt_mentions_different_approach(self):
+        """Must instruct to try a different approach on FFmpeg failure."""
+        self.assertIn("try a DIFFERENT approach", SYSTEM_PROMPT)
+
+    def test_prompt_prefer_image_compose_for_images(self):
+        """Must prefer image_compose over ffmpeg_process for image-to-image."""
+        self.assertIn("prefer image_compose over ffmpeg_process", SYSTEM_PROMPT)
+
+
+class TestUnavailableModules(unittest.TestCase):
+    """System prompt must list unavailable Python modules."""
+
+    def test_prompt_mentions_cv2_unavailable(self):
+        """Must list cv2/OpenCV as unavailable."""
+        self.assertIn("cv2/OpenCV", SYSTEM_PROMPT)
+
+    def test_prompt_mentions_sklearn_unavailable(self):
+        """Must list sklearn as unavailable."""
+        self.assertIn("sklearn", SYSTEM_PROMPT)
+
+    def test_prompt_mentions_tensorflow_unavailable(self):
+        """Must list tensorflow as unavailable."""
+        self.assertIn("tensorflow", SYSTEM_PROMPT)
+
+    def test_prompt_mentions_torch_unavailable(self):
+        """Must list torch as unavailable."""
+        self.assertIn("torch", SYSTEM_PROMPT)
+
+    def test_prompt_mentions_scipy_unavailable(self):
+        """Must list scipy as unavailable."""
+        self.assertIn("scipy", SYSTEM_PROMPT)
+
+
 class TestCriticalToolUseRule(unittest.TestCase):
     """System prompt must instruct the model to always use tools for new requests."""
 

@@ -60,7 +60,9 @@ The same architecture could work on iOS with slightly alternative approaches for
 ## Features
 
 - **Fully Offline AI** — run Qwen2.5-Coder models (0.5B/1.5B/3B) on-device via MLC LLM, no internet required
-- **Cloud AI** — or use Claude API (Opus/Sonnet/Haiku) for maximum capability
+- **Cloud AI** — or use Claude API (Opus 4.6/Sonnet 4.5/Haiku 4.5) for maximum capability
+- **Interactive HTML & Games** — create fullscreen mobile-optimized games, apps, and animations with touch controls
+- **Image Manipulation** — concat, overlay, resize, adjust, crop, grayscale, blur via image_compose
 - **Video/Audio Processing** — crop, resize, extract audio, convert formats, adjust volume (FFmpeg)
 - **Document Handling** — read/create PDFs, convert DOCX, Excel, PowerPoint
 - **Web Integration** — fetch pages, headless browser for JS-heavy sites
@@ -79,7 +81,9 @@ NavixMind can run entirely offline using on-device language models powered by [M
 |-------|------|-------------|----------|
 | Qwen2.5-Coder-0.5B | ~400MB | 2GB+ | Quick tasks, low-end devices |
 | Qwen2.5-Coder-1.5B | ~1GB | 4GB+ | Balanced speed and quality |
-| Qwen2.5-Coder-3B | ~2GB | 6GB+ | Best quality, tool-use capable |
+| Qwen2.5-Coder-3B | ~2GB | 6GB+ | Best coding quality |
+| Ministral-3B | ~2GB | 6GB+ | Best general quality, tool-use capable |
+| Qwen3-4B | ~2.5GB | 6GB+ | Extended thinking, strongest offline model |
 
 Models are quantized to `q4f16_0` (4-bit weights, 16-bit activations) for efficient mobile inference.
 
@@ -199,8 +203,8 @@ navixmind/
 ├── android/
 │   ├── app/src/main/kotlin/  # Kotlin bridge, MLC inference, model downloads
 │   └── mlc4j/                # MLC LLM native library (built via mlc_llm package)
-├── test/                     # 2,167 Dart tests
-├── python/tests/             # 950 Python tests
+├── test/                     # Dart tests
+├── python/tests/             # Python tests
 └── www/                      # Website (navixmind.ai)
 ```
 
