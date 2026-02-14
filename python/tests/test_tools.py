@@ -741,3 +741,396 @@ class TestNativeToolDelegation:
         call_args = mock_bridge.return_value.call_native.call_args
         assert call_args is not None
         assert call_args[0][0] == "smart_crop"
+
+    def test_image_compose_delegates(self):
+        """Test image_compose tool delegates to native."""
+        from navixmind.tools import execute_tool
+
+        with patch('navixmind.bridge.get_bridge') as mock_bridge:
+            mock_bridge.return_value.call_native.return_value = {
+                "success": True,
+                "output_path": "/path/to/combined.jpg",
+                "width": 800,
+                "height": 400,
+                "output_size_bytes": 125000,
+                "operation": "concat_horizontal",
+            }
+
+            result = execute_tool("image_compose", {
+                "input_paths": ["/path/to/img1.jpg", "/path/to/img2.jpg"],
+                "output_path": "/path/to/combined.jpg",
+                "operation": "concat_horizontal",
+            }, {})
+
+        mock_bridge.return_value.call_native.assert_called_once()
+        call_args = mock_bridge.return_value.call_native.call_args
+        assert call_args is not None
+        assert call_args[0][0] == "image_compose"
+        assert call_args[0][1]["operation"] == "concat_horizontal"
+
+    def test_image_compose_adjust_delegates(self):
+        """Test image_compose adjust operation delegates to native."""
+        from navixmind.tools import execute_tool
+
+        with patch('navixmind.bridge.get_bridge') as mock_bridge:
+            mock_bridge.return_value.call_native.return_value = {
+                "success": True,
+                "output_path": "/path/to/bright.jpg",
+                "width": 1920,
+                "height": 1080,
+                "output_size_bytes": 250000,
+                "operation": "adjust",
+            }
+
+            result = execute_tool("image_compose", {
+                "input_paths": ["/path/to/photo.jpg"],
+                "output_path": "/path/to/bright.jpg",
+                "operation": "adjust",
+                "params": {"brightness": 1.3, "contrast": 1.1},
+            }, {})
+
+        call_args = mock_bridge.return_value.call_native.call_args
+        assert call_args[0][1]["operation"] == "adjust"
+        assert call_args[0][1]["params"]["brightness"] == 1.3
+
+    def test_image_compose_gets_timeout(self):
+        """Test image_compose receives timeout from context."""
+        from navixmind.tools import execute_tool
+        import navixmind.tools as tools_mod
+
+        original = tools_mod._image_compose
+        mock_compose = Mock(return_value={"success": True, "output_path": "/out.jpg"})
+        tools_mod._image_compose = mock_compose
+        try:
+            execute_tool(
+                "image_compose",
+                {"input_paths": ["/a.jpg"], "output_path": "/out.jpg", "operation": "grayscale"},
+                {"tool_timeout_ms": 60000}
+            )
+            call_kwargs = mock_compose.call_args[1]
+            assert "_timeout_ms" in call_kwargs
+            assert call_kwargs["_timeout_ms"] == 60000
+        finally:
+            tools_mod._image_compose = original
+
+    def test_list_files_delegates(self):
+        """Test list_files tool delegates to native."""
+        from navixmind.tools import execute_tool
+
+        with patch('navixmind.bridge.get_bridge') as mock_bridge:
+            mock_bridge.return_value.call_native.return_value = {
+                "success": True,
+                "directory": "/storage/emulated/0/Pictures/Screenshots",
+                "files": [
+                    {
+                        "name": "shot1.png",
+                        "path": "/storage/emulated/0/Pictures/Screenshots/shot1.png",
+                        "size_bytes": 125000,
+                        "modified": "2024-01-15T10:30:00.000",
+                    },
+                ],
+                "file_count": 1,
+            }
+
+            result = execute_tool("list_files", {
+                "directory": "screenshots",
+            }, {})
+
+        mock_bridge.return_value.call_native.assert_called_once()
+        call_args = mock_bridge.return_value.call_native.call_args
+        assert call_args is not None
+        assert call_args[0][0] == "list_files"
+        assert call_args[0][1]["directory"] == "screenshots"
+
+    def test_list_files_gets_timeout(self):
+        """Test list_files receives timeout from context."""
+        from navixmind.tools import execute_tool
+        import navixmind.tools as tools_mod
+
+        original = tools_mod._list_files
+        mock_list = Mock(return_value={"success": True, "files": [], "file_count": 0})
+        tools_mod._list_files = mock_list
+        try:
+            execute_tool(
+                "list_files",
+                {"directory": "downloads"},
+                {"tool_timeout_ms": 15000}
+            )
+            call_kwargs = mock_list.call_args[1]
+            assert "_timeout_ms" in call_kwargs
+            assert call_kwargs["_timeout_ms"] == 15000
+        finally:
+            tools_mod._list_files = original
+
+
+class TestImageComposeSchema:
+    """Tests for image_compose tool schema."""
+
+    def test_schema_exists(self):
+        """Test image_compose schema is defined."""
+        from navixmind.tools import TOOLS_SCHEMA
+        tool_names = [t["name"] for t in TOOLS_SCHEMA]
+        assert "image_compose" in tool_names
+
+    def test_schema_has_required_fields(self):
+        """Test image_compose schema has proper structure."""
+        from navixmind.tools import TOOLS_SCHEMA
+        schema = next(t for t in TOOLS_SCHEMA if t["name"] == "image_compose")
+
+        assert "description" in schema
+        assert "input_schema" in schema
+        assert "properties" in schema["input_schema"]
+
+        props = schema["input_schema"]["properties"]
+        assert "input_paths" in props
+        assert "output_path" in props
+        assert "operation" in props
+        assert "params" in props
+
+    def test_schema_operations_include_adjust(self):
+        """Test image_compose operations include adjust for brightness/contrast."""
+        from navixmind.tools import TOOLS_SCHEMA
+        schema = next(t for t in TOOLS_SCHEMA if t["name"] == "image_compose")
+        ops = schema["input_schema"]["properties"]["operation"]["enum"]
+
+        assert "adjust" in ops
+        assert "concat_horizontal" in ops
+        assert "concat_vertical" in ops
+        assert "overlay" in ops
+        assert "resize" in ops
+        assert "crop" in ops
+        assert "grayscale" in ops
+        assert "blur" in ops
+
+    def test_schema_required(self):
+        """Test required fields are specified."""
+        from navixmind.tools import TOOLS_SCHEMA
+        schema = next(t for t in TOOLS_SCHEMA if t["name"] == "image_compose")
+        required = schema["input_schema"]["required"]
+
+        assert "input_paths" in required
+        assert "output_path" in required
+        assert "operation" in required
+
+    def test_schema_description_mentions_PIL_warning(self):
+        """Test description warns against PIL usage."""
+        from navixmind.tools import TOOLS_SCHEMA
+        schema = next(t for t in TOOLS_SCHEMA if t["name"] == "image_compose")
+        desc = schema["description"]
+
+        assert "PIL" in desc or "Pillow" in desc
+
+    def test_schema_description_warns_against_ffmpeg(self):
+        """Test description warns against using ffmpeg for images."""
+        from navixmind.tools import TOOLS_SCHEMA
+        schema = next(t for t in TOOLS_SCHEMA if t["name"] == "image_compose")
+        desc = schema["description"]
+
+        assert "ffmpeg" in desc.lower()
+
+    def test_offline_schema_exists(self):
+        """Test image_compose is in offline schema."""
+        from navixmind.tools import OFFLINE_TOOLS_SCHEMA
+        tool_names = [t["name"] for t in OFFLINE_TOOLS_SCHEMA]
+        assert "image_compose" in tool_names
+
+    def test_offline_schema_operations_match(self):
+        """Test offline schema has same operations."""
+        from navixmind.tools import OFFLINE_TOOLS_SCHEMA
+        schema = next(t for t in OFFLINE_TOOLS_SCHEMA if t["name"] == "image_compose")
+        ops = schema["input_schema"]["properties"]["operation"]["enum"]
+
+        assert "adjust" in ops
+        assert "grayscale" in ops
+        assert "blur" in ops
+
+
+class TestListFilesSchema:
+    """Tests for list_files tool schema."""
+
+    def test_schema_exists(self):
+        """Test list_files schema is defined."""
+        from navixmind.tools import TOOLS_SCHEMA
+        tool_names = [t["name"] for t in TOOLS_SCHEMA]
+        assert "list_files" in tool_names
+
+    def test_schema_has_required_fields(self):
+        """Test list_files schema has proper structure."""
+        from navixmind.tools import TOOLS_SCHEMA
+        schema = next(t for t in TOOLS_SCHEMA if t["name"] == "list_files")
+
+        props = schema["input_schema"]["properties"]
+        assert "directory" in props
+
+    def test_schema_directory_enum(self):
+        """Test list_files directory options are constrained."""
+        from navixmind.tools import TOOLS_SCHEMA
+        schema = next(t for t in TOOLS_SCHEMA if t["name"] == "list_files")
+        dirs = schema["input_schema"]["properties"]["directory"]["enum"]
+
+        assert "output" in dirs
+        assert "screenshots" in dirs
+        assert "camera" in dirs
+        assert "downloads" in dirs
+        assert len(dirs) == 4  # No extra unsafe directories
+
+    def test_schema_required(self):
+        """Test required fields."""
+        from navixmind.tools import TOOLS_SCHEMA
+        schema = next(t for t in TOOLS_SCHEMA if t["name"] == "list_files")
+        assert "directory" in schema["input_schema"]["required"]
+
+    def test_offline_schema_exists(self):
+        """Test list_files is in offline schema."""
+        from navixmind.tools import OFFLINE_TOOLS_SCHEMA
+        tool_names = [t["name"] for t in OFFLINE_TOOLS_SCHEMA]
+        assert "list_files" in tool_names
+
+
+class TestInputPathsResolution:
+    """Tests for input_paths array resolution in file path handling."""
+
+    def test_input_paths_resolved_by_basename(self):
+        """Test input_paths array items are resolved via basename lookup."""
+        from navixmind.tools import execute_tool
+        import navixmind.tools as tools_mod
+
+        file_map = {
+            "img1.jpg": "/data/user/0/ai.navixmind/files/navixmind_shared/img1.jpg",
+            "img2.jpg": "/data/user/0/ai.navixmind/files/navixmind_shared/img2.jpg",
+        }
+
+        original = tools_mod._image_compose
+        mock_compose = Mock(return_value={"success": True, "output_path": "/out.jpg"})
+        tools_mod._image_compose = mock_compose
+        try:
+            execute_tool(
+                "image_compose",
+                {
+                    "input_paths": ["img1.jpg", "img2.jpg"],
+                    "output_path": "combined.jpg",
+                    "operation": "concat_horizontal",
+                },
+                {"_file_map": file_map, "output_dir": "/tmp/out"}
+            )
+            call_kwargs = mock_compose.call_args[1]
+            assert call_kwargs["input_paths"] == [
+                "/data/user/0/ai.navixmind/files/navixmind_shared/img1.jpg",
+                "/data/user/0/ai.navixmind/files/navixmind_shared/img2.jpg",
+            ]
+        finally:
+            tools_mod._image_compose = original
+
+    def test_input_paths_resolved_by_full_path_basename(self):
+        """Test full paths in input_paths are resolved via basename extraction."""
+        from navixmind.tools import execute_tool
+        import navixmind.tools as tools_mod
+
+        file_map = {
+            "photo.jpg": "/data/user/0/ai.navixmind/files/navixmind_shared/photo.jpg",
+        }
+
+        original = tools_mod._image_compose
+        mock_compose = Mock(return_value={"success": True, "output_path": "/out.jpg"})
+        tools_mod._image_compose = mock_compose
+        try:
+            execute_tool(
+                "image_compose",
+                {
+                    "input_paths": ["/wrong/path/photo.jpg"],
+                    "output_path": "result.jpg",
+                    "operation": "resize",
+                    "params": {"width": 800},
+                },
+                {"_file_map": file_map, "output_dir": "/tmp/out"}
+            )
+            call_kwargs = mock_compose.call_args[1]
+            assert call_kwargs["input_paths"] == [
+                "/data/user/0/ai.navixmind/files/navixmind_shared/photo.jpg",
+            ]
+        finally:
+            tools_mod._image_compose = original
+
+    def test_input_paths_passthrough_when_not_in_map(self):
+        """Test paths not in file_map are passed through unchanged."""
+        from navixmind.tools import execute_tool
+        import navixmind.tools as tools_mod
+
+        original = tools_mod._image_compose
+        mock_compose = Mock(return_value={"success": True, "output_path": "/out.jpg"})
+        tools_mod._image_compose = mock_compose
+        try:
+            execute_tool(
+                "image_compose",
+                {
+                    "input_paths": ["/real/path/photo.jpg"],
+                    "output_path": "result.jpg",
+                    "operation": "grayscale",
+                },
+                {"_file_map": {}, "output_dir": "/tmp/out"}
+            )
+            call_kwargs = mock_compose.call_args[1]
+            assert call_kwargs["input_paths"] == ["/real/path/photo.jpg"]
+        finally:
+            tools_mod._image_compose = original
+
+
+class TestToolMapCompleteness:
+    """Tests to verify all schemas have corresponding dispatch functions."""
+
+    def test_all_schema_tools_are_dispatchable(self):
+        """Test every tool in TOOLS_SCHEMA is registered in the tool_map."""
+        from navixmind.tools import TOOLS_SCHEMA, execute_tool
+        from navixmind.bridge import ToolError
+
+        tool_names = [t["name"] for t in TOOLS_SCHEMA]
+
+        # Tools that block: python_execute waits for input,
+        # native tools call bridge.call_native() which blocks waiting for Flutter
+        skip = {
+            "python_execute",
+            "ffmpeg_process", "ocr_image", "smart_crop",
+            "image_compose", "list_files",
+            "headless_browser",
+            "google_calendar", "gmail",
+        }
+
+        for name in tool_names:
+            if name in skip:
+                continue
+            try:
+                execute_tool(name, {}, {})
+            except ToolError as e:
+                assert "Unknown tool" not in str(e), f"Tool {name} is not registered in tool_map"
+            except Exception:
+                pass  # Missing params is fine — we just verify dispatch
+
+        # For skipped tools, verify they exist in schema (dispatch tested
+        # individually in TestNativeToolDelegation with mocked bridges)
+        schema_names = {t["name"] for t in TOOLS_SCHEMA}
+        for name in skip:
+            assert name in schema_names, f"Skipped tool {name} not found in TOOLS_SCHEMA"
+
+    def test_image_compose_in_tool_map(self):
+        """Test image_compose is registered in execute_tool dispatch."""
+        from navixmind.tools import execute_tool
+        from navixmind.bridge import ToolError
+
+        try:
+            execute_tool("image_compose", {}, {})
+        except ToolError as e:
+            assert "Unknown tool" not in str(e)
+        except Exception:
+            pass  # Missing params is fine
+
+    def test_list_files_in_tool_map(self):
+        """Test list_files is registered in execute_tool dispatch."""
+        from navixmind.tools import execute_tool
+        from navixmind.bridge import ToolError
+
+        try:
+            execute_tool("list_files", {}, {})
+        except ToolError as e:
+            assert "Unknown tool" not in str(e)
+        except Exception:
+            pass

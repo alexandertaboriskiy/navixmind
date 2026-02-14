@@ -1410,7 +1410,7 @@ String _buildFFmpegCommand({
 }
 
 void _validateTool(String tool) {
-  const validTools = ['ffmpeg', 'ocr', 'headless_browser', 'face_detect', 'smart_crop'];
+  const validTools = ['ffmpeg', 'ocr', 'headless_browser', 'face_detect', 'smart_crop', 'image_compose', 'list_files', 'llm_generate'];
   if (!validTools.contains(tool)) {
     throw UnsupportedError('Unknown native tool: $tool');
   }

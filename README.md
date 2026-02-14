@@ -125,7 +125,8 @@ The on-device model generates OpenAI-compatible responses which the Python agent
 ### Prerequisites
 
 - Android device (API 24+) — iOS support is possible in the future
-- [Claude API key](https://console.anthropic.com/) from Anthropic
+- **Cloud mode:** [Claude API key](https://console.anthropic.com/) from Anthropic
+- **Offline mode:** No API key or internet needed — download an on-device model from Settings
 
 ### Installation
 

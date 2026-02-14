@@ -395,6 +395,49 @@ TOOLS_SCHEMA = [
         }
     },
     {
+        "name": "image_compose",
+        "description": "Compose/manipulate images. Use this for ALL image-to-image operations — do NOT use ffmpeg_process for pure image work, do NOT use PIL/Pillow. Operations: concat_horizontal (side by side), concat_vertical (stacked), overlay (place image on another at x,y), resize, adjust (brightness/contrast/saturation/hue/gamma/exposure), crop, grayscale, blur.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "input_paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Input image paths (2+ for concat/overlay, 1 for other ops)"
+                },
+                "output_path": {
+                    "type": "string",
+                    "description": "Output image path (.jpg or .png)"
+                },
+                "operation": {
+                    "type": "string",
+                    "enum": ["concat_horizontal", "concat_vertical", "overlay", "resize", "adjust", "crop", "grayscale", "blur"],
+                    "description": "Operation to perform"
+                },
+                "params": {
+                    "type": "object",
+                    "description": "adjust: {brightness, contrast, saturation, hue, gamma, exposure} (all optional floats, 1.0=no change). crop: {x, y, width, height}. overlay: {x, y}. resize: {width, height}. blur: {radius}. concat/grayscale: no params."
+                }
+            },
+            "required": ["input_paths", "output_path", "operation"]
+        }
+    },
+    {
+        "name": "list_files",
+        "description": "List files in a device directory. Use this to discover available files before referencing them. Returns name, path, size, and modification date for each file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "directory": {
+                    "type": "string",
+                    "enum": ["output", "screenshots", "camera", "downloads"],
+                    "description": "Which directory to list: output (app output), screenshots, camera, downloads"
+                }
+            },
+            "required": ["directory"]
+        }
+    },
+    {
         "name": "python_execute",
         "description": """Execute Python code in a secure sandbox. Use this for:
 - Data processing and analysis (pandas DataFrames, CSV, groupby, etc.)
@@ -607,6 +650,31 @@ OFFLINE_TOOLS_SCHEMA = [
         }
     },
     {
+        "name": "image_compose",
+        "description": "Image manipulation: concat_horizontal, concat_vertical, overlay, resize, adjust (brightness/contrast/saturation), crop, grayscale, blur. Use for ALL image operations. Do NOT use PIL.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "input_paths": {"type": "array", "items": {"type": "string"}, "description": "Input image paths"},
+                "output_path": {"type": "string", "description": "Output image path (.jpg or .png)"},
+                "operation": {"type": "string", "enum": ["concat_horizontal", "concat_vertical", "overlay", "resize", "adjust", "crop", "grayscale", "blur"]},
+                "params": {"type": "object", "description": "adjust: {brightness, contrast, saturation, hue, gamma, exposure}. crop: {x, y, width, height}. overlay: {x, y}. resize: {width, height}. blur: {radius}."}
+            },
+            "required": ["input_paths", "output_path", "operation"]
+        }
+    },
+    {
+        "name": "list_files",
+        "description": "List files in a device directory.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "directory": {"type": "string", "enum": ["output", "screenshots", "camera", "downloads"]}
+            },
+            "required": ["directory"]
+        }
+    },
+    {
         "name": "file_info",
         "description": "Get file size, name, extension.",
         "input_schema": {
@@ -658,6 +726,8 @@ def execute_tool(
         "ffmpeg_process": _ffmpeg_process,
         "ocr_image": _ocr_image,
         "smart_crop": _smart_crop,
+        "image_compose": _image_compose,
+        "list_files": _list_files,
         "python_execute": python_execute,
         "file_info": _file_info,
         "read_file": read_file,
@@ -689,11 +759,11 @@ def execute_tool(
         args["output_dir"] = output_dir
 
     # Pass timeout for native tools
-    if tool_name in ["ocr_image", "ffmpeg_process", "smart_crop"]:
+    if tool_name in ["ocr_image", "ffmpeg_process", "smart_crop", "image_compose", "list_files"]:
         args["_timeout_ms"] = context.get("tool_timeout_ms", 30000)
 
     # Strip internal keys that Claude may echo back from context
-    args.pop('_timeout_ms', None) if tool_name not in ["ocr_image", "ffmpeg_process", "smart_crop"] else None
+    args.pop('_timeout_ms', None) if tool_name not in ["ocr_image", "ffmpeg_process", "smart_crop", "image_compose", "list_files"] else None
 
     return tool_func(**args)
 
@@ -713,8 +783,8 @@ def _resolve_file_paths(args: Dict[str, Any], file_map: Dict[str, str]) -> None:
                 elif os.path.basename(value) in file_map:
                     args[key] = file_map[os.path.basename(value)]
 
-    # Also resolve arrays of paths (e.g. image_paths for create_pdf, file_paths for create_zip)
-    array_path_keys = ['image_paths', 'file_paths']
+    # Also resolve arrays of paths (e.g. image_paths for create_pdf, file_paths for create_zip, input_paths for image_compose)
+    array_path_keys = ['image_paths', 'file_paths', 'input_paths']
     for key in array_path_keys:
         if key in args and isinstance(args[key], list):
             resolved = []
@@ -785,3 +855,21 @@ def _smart_crop(**kwargs) -> dict:
     timeout_ms = kwargs.pop('_timeout_ms', 30000)
     # Smart crop gets 10x the base timeout (video processing is slow)
     return bridge.call_native("smart_crop", kwargs, timeout_ms=timeout_ms * 10)
+
+
+def _image_compose(**kwargs) -> dict:
+    """Image composition - delegates to native Flutter tool."""
+    from ..bridge import get_bridge
+    bridge = get_bridge()
+
+    timeout_ms = kwargs.pop('_timeout_ms', 30000)
+    return bridge.call_native("image_compose", kwargs, timeout_ms=timeout_ms)
+
+
+def _list_files(**kwargs) -> dict:
+    """List files in device directory - delegates to native Flutter tool."""
+    from ..bridge import get_bridge
+    bridge = get_bridge()
+
+    timeout_ms = kwargs.pop('_timeout_ms', 30000)
+    return bridge.call_native("list_files", kwargs, timeout_ms=timeout_ms)

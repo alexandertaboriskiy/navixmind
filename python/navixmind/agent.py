@@ -109,6 +109,8 @@ AVAILABLE TOOLS:
 - **read_xlsx** — Extract cell data, sheet names, and formulas from XLSX files
 - **modify_xlsx** — Modify existing XLSX files (set cells, formulas, add rows/sheets, delete sheets)
 - **ffmpeg_process** — Process video/audio: trim, crop, resize, filter, extract audio/frame, convert. Returns media_duration_seconds (actual media length) and processing_time_ms (execution time) — do NOT confuse them. NEVER use % patterns (like %03d) in output filenames — the tool expects a single output file. To split media into segments, use multiple trim calls with start/duration.
+- **image_compose** — Image manipulation: concat (side by side / stacked), overlay, resize, adjust (brightness/contrast/saturation/hue/gamma/exposure), crop, grayscale, blur. Use this for ALL image-to-image work — do NOT use ffmpeg_process or PIL for images.
+- **list_files** — List files in device directories (output, screenshots, camera, downloads). Use this to discover files before referencing them by path.
 - **smart_crop** — Smart crop video/image to focus on faces (for simple face-centered cropping only)
 - **ocr_image** — Extract text from images using OCR
 - **download_media** — Download video/audio from supported platforms (NOT YouTube)
@@ -142,12 +144,18 @@ FFMPEG PATTERNS (use these exact patterns — do NOT improvise):
 - Commas inside filter expressions are escaped automatically — write them normally.
 - When combining effects (e.g. select + black & white), chain them in a single vf string: vf="select='...',setpts=...,hue=s=0"
 
+IMAGE OPERATIONS:
+- Use **image_compose** for ALL image manipulation: concatenation, overlay, resize. Do NOT use ffmpeg_process for image-to-image work — FFmpeg is for video/audio.
+- Do NOT use PIL/Pillow in python_execute — it is blocked by the sandbox. Use image_compose instead.
+- To discover files on the device (screenshots, camera photos, downloads), use **list_files** first to get exact paths.
+
 PYTHON EXECUTION:
 - Use python_execute for calculations, data processing, algorithms, text manipulation.
 - Use pandas for tabular data analysis (DataFrames, groupby, describe, CSV read/write).
 - Use matplotlib for charts/graphs. Plots are auto-saved as PNG and returned to the user.
 - An OUTPUT_DIR variable is available in python_execute for saving output files (CSV, plots, etc.).
 - Do NOT use python_execute to call ffmpeg/ffprobe — use the ffmpeg_process tool instead.
+- Do NOT use PIL/Pillow — it is blocked. Use the image_compose tool for image manipulation.
 - Do NOT access files via os/pathlib — use dedicated tools (read_file, read_pdf, ocr_image, file_info, etc.).
 - python_execute cannot access the network — use web_fetch for that.
 - python_execute can only read files explicitly listed in its file_paths parameter.
@@ -1030,18 +1038,34 @@ def process_query(
                         result_str = json.dumps(result) if isinstance(result, dict) else str(result)
 
                         # Log created files as clickable links and add to file map
+                        # Validate that output files actually exist before tracking them
                         if isinstance(result, dict):
                             if result.get('output_path'):
                                 output_path = result['output_path']
-                                bridge.log(f"File: {output_path}", level="info")
-                                created_files.append(output_path)
-                                session._file_map[os.path.basename(output_path)] = output_path
+                                if os.path.exists(output_path):
+                                    bridge.log(f"File: {output_path}", level="info")
+                                    created_files.append(output_path)
+                                    session._file_map[os.path.basename(output_path)] = output_path
+                                else:
+                                    # File was not actually created — report as error
+                                    # so the agent can retry
+                                    result['success'] = False
+                                    result['error'] = f"Output file was not created: {output_path}"
+                                    result_str = json.dumps(result)
+                                    bridge.log(f"File missing: {output_path}", level="warn")
                             # Also track multi-file results (e.g. FFmpeg split)
                             if result.get('output_paths'):
+                                verified_paths = []
                                 for p in result['output_paths']:
-                                    bridge.log(f"File: {p}", level="info")
-                                    created_files.append(p)
-                                    session._file_map[os.path.basename(p)] = p
+                                    if os.path.exists(p):
+                                        bridge.log(f"File: {p}", level="info")
+                                        created_files.append(p)
+                                        session._file_map[os.path.basename(p)] = p
+                                        verified_paths.append(p)
+                                    else:
+                                        bridge.log(f"File missing: {p}", level="warn")
+                                result['output_paths'] = verified_paths
+                                result['file_count'] = len(verified_paths)
 
                         # Log result summary
                         result_summary = _summarize_tool_result(tool_name, result_str)

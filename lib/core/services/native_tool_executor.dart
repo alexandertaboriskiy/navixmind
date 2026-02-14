@@ -37,11 +37,88 @@ class NativeToolExecutor {
     _subscription = _bridge.nativeToolStream.listen(_handleToolRequest);
   }
 
+  /// Common Android directories to search when a file path doesn't exist.
+  static const _searchDirectories = [
+    '/storage/emulated/0/Pictures/Screenshots',
+    '/storage/emulated/0/DCIM/Camera',
+    '/storage/emulated/0/Download',
+    '/storage/emulated/0/Documents',
+    '/storage/emulated/0/Pictures',
+    '/storage/emulated/0/DCIM',
+  ];
+
+  /// Resolve a file path: if it doesn't exist, search common directories by basename.
+  /// If found externally, copy to internal storage for reliability.
+  Future<String> _resolveFilePath(String path) async {
+    // If the file exists at the given path, use it as-is
+    if (await File(path).exists()) return path;
+
+    final basename = path.substring(path.lastIndexOf('/') + 1);
+    if (basename.isEmpty || !basename.contains('.')) return path;
+
+    // Search app internal directories first
+    final appDir = await getApplicationDocumentsDirectory();
+    final internalDirs = [
+      '${appDir.path}/navixmind_output',
+      '${appDir.parent.path}/files/navixmind_shared',
+    ];
+
+    for (final dir in [...internalDirs, ..._searchDirectories]) {
+      final candidate = File('$dir/$basename');
+      if (await candidate.exists()) {
+        debugPrint('[NativeTool] Resolved $basename -> ${candidate.path}');
+        // If file is in external storage, copy to internal for reliability
+        if (!candidate.path.startsWith(appDir.path)) {
+          final internalCopy = File('${appDir.path}/navixmind_output/$basename');
+          await internalCopy.parent.create(recursive: true);
+          await candidate.copy(internalCopy.path);
+          debugPrint('[NativeTool] Copied to internal: ${internalCopy.path}');
+          return internalCopy.path;
+        }
+        return candidate.path;
+      }
+    }
+
+    // Not found anywhere — return original path (tool will report appropriate error)
+    debugPrint('[NativeTool] File not found anywhere: $basename');
+    return path;
+  }
+
+  /// Resolve all file path arguments in a tool request.
+  Future<Map<String, dynamic>> _resolveToolPaths(Map<String, dynamic> args) async {
+    final resolved = Map<String, dynamic>.from(args);
+
+    // Single path keys
+    const pathKeys = ['input_path', 'image_path', 'file_path'];
+    for (final key in pathKeys) {
+      if (resolved[key] is String) {
+        resolved[key] = await _resolveFilePath(resolved[key] as String);
+      }
+    }
+
+    // Array path keys
+    const arrayPathKeys = ['input_paths', 'image_paths', 'file_paths'];
+    for (final key in arrayPathKeys) {
+      if (resolved[key] is List) {
+        final paths = (resolved[key] as List).cast<String>();
+        final resolvedPaths = <String>[];
+        for (final p in paths) {
+          resolvedPaths.add(await _resolveFilePath(p));
+        }
+        resolved[key] = resolvedPaths;
+      }
+    }
+
+    return resolved;
+  }
+
   void _handleToolRequest(NativeToolRequest request) async {
     debugPrint('[NativeTool] Received request: ${request.tool} (id: ${request.id})');
     final stopwatch = Stopwatch()..start();
     try {
-      final result = await _executeTool(request.tool, request.args);
+      // Resolve file paths before executing the tool
+      final resolvedArgs = await _resolveToolPaths(request.args);
+      final result = await _executeTool(request.tool, resolvedArgs);
       stopwatch.stop();
       debugPrint('[NativeTool] Success: ${request.tool}');
       await _bridge.sendToolResult(id: request.id, result: result);
@@ -88,6 +165,10 @@ class NativeToolExecutor {
         return _executeFaceDetection(args);
       case 'smart_crop':
         return _executeSmartCrop(args);
+      case 'image_compose':
+        return _executeImageCompose(args);
+      case 'list_files':
+        return _executeListFiles(args);
       case 'llm_generate':
         return _executeLLMGenerate(args);
       default:
@@ -266,6 +347,31 @@ class NativeToolExecutor {
     }
   }
 
+  /// Image file extensions for detecting image-to-image operations.
+  static const _imageExtensions = {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tiff', '.gif'};
+
+  /// Check if a file path points to an image based on extension.
+  bool _isImagePath(String path) {
+    final dotIdx = path.lastIndexOf('.');
+    if (dotIdx < 0) return false;
+    final ext = path.substring(dotIdx).toLowerCase();
+    return _imageExtensions.contains(ext);
+  }
+
+  /// Return FFmpeg codec arguments appropriate for image output.
+  String _imageCodecArgs(String outputPath) {
+    final dotIdx = outputPath.lastIndexOf('.');
+    final ext = dotIdx >= 0 ? outputPath.substring(dotIdx).toLowerCase() : '';
+    switch (ext) {
+      case '.png':
+        return '-c:v png';
+      case '.webp':
+        return '-c:v libwebp';
+      default:
+        return '-c:v mjpeg -q:v 2';
+    }
+  }
+
   /// Execute FFmpeg operation
   Future<Map<String, dynamic>> _executeFFmpeg(Map<String, dynamic> args) async {
     final inputPath = args['input_path'] as String?;
@@ -294,7 +400,11 @@ class NativeToolExecutor {
         if (width == null || height == null) {
           throw ArgumentError('Crop requires width and height parameters');
         }
-        command = '-y -i "$inputPath" -vf "crop=$width:$height:$x:$y" -pix_fmt yuv420p -c:a copy "$outputPath"';
+        if (_isImagePath(inputPath) && _isImagePath(outputPath)) {
+          command = '-y -i "$inputPath" -vf "crop=$width:$height:$x:$y" ${_imageCodecArgs(outputPath)} "$outputPath"';
+        } else {
+          command = '-y -i "$inputPath" -vf "crop=$width:$height:$x:$y" -pix_fmt yuv420p -c:a copy "$outputPath"';
+        }
         break;
 
       case 'resize':
@@ -308,7 +418,11 @@ class NativeToolExecutor {
             : width != null
                 ? 'scale=$width:-2'
                 : 'scale=-2:$height';
-        command = '-y -i "$inputPath" -vf "$scale" -pix_fmt yuv420p -c:a copy "$outputPath"';
+        if (_isImagePath(inputPath) && _isImagePath(outputPath)) {
+          command = '-y -i "$inputPath" -vf "$scale" ${_imageCodecArgs(outputPath)} "$outputPath"';
+        } else {
+          command = '-y -i "$inputPath" -vf "$scale" -pix_fmt yuv420p -c:a copy "$outputPath"';
+        }
         break;
 
       case 'extract_audio':
@@ -407,7 +521,11 @@ class NativeToolExecutor {
         } else if (vf != null && af != null) {
           command = '-y -i "$inputPath" -vf "$vf" -af "$af" -c:v libx264 -pix_fmt yuv420p -crf 23 -c:a aac "$outputPath"';
         } else if (vf != null) {
-          command = '-y -i "$inputPath" -vf "$vf" -c:v libx264 -pix_fmt yuv420p -crf 23 -c:a aac "$outputPath"';
+          if (_isImagePath(inputPath) && _isImagePath(outputPath)) {
+            command = '-y -i "$inputPath" -vf "$vf" ${_imageCodecArgs(outputPath)} "$outputPath"';
+          } else {
+            command = '-y -i "$inputPath" -vf "$vf" -c:v libx264 -pix_fmt yuv420p -crf 23 -c:a aac "$outputPath"';
+          }
         } else {
           command = '-y -i "$inputPath" -c:v copy -af "$af" -c:a aac "$outputPath"';
         }
@@ -1106,6 +1224,259 @@ class NativeToolExecutor {
       'y': cropY,
       'width': cropWidth,
       'height': cropHeight,
+    };
+  }
+
+  /// Execute image composition/manipulation using the `image` Dart package.
+  ///
+  /// Supports operations: concat_horizontal, concat_vertical, overlay, resize,
+  /// adjust (brightness/contrast/saturation/hue/gamma), crop, grayscale, blur.
+  Future<Map<String, dynamic>> _executeImageCompose(
+    Map<String, dynamic> args,
+  ) async {
+    final inputPaths = (args['input_paths'] as List?)?.cast<String>();
+    final outputPath = args['output_path'] as String?;
+    final operation = args['operation'] as String?;
+    final params = args['params'] as Map<String, dynamic>? ?? {};
+
+    if (inputPaths == null || inputPaths.isEmpty) {
+      throw ArgumentError('Missing required parameter: input_paths');
+    }
+    if (outputPath == null) {
+      throw ArgumentError('Missing required parameter: output_path');
+    }
+    if (operation == null) {
+      throw ArgumentError('Missing required parameter: operation');
+    }
+
+    // Load all input images
+    final images = <img.Image>[];
+    for (final path in inputPaths) {
+      final file = File(path);
+      if (!await file.exists()) {
+        throw ArgumentError('Input file does not exist: $path');
+      }
+      final bytes = await file.readAsBytes();
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) {
+        throw ArgumentError('Failed to decode image: $path');
+      }
+      images.add(decoded);
+    }
+
+    img.Image result;
+
+    switch (operation) {
+      case 'concat_horizontal':
+        if (images.length < 2) {
+          throw ArgumentError('concat_horizontal requires at least 2 input images');
+        }
+        // Find max height, resize all to match
+        final maxHeight = images.map((i) => i.height).reduce((a, b) => a > b ? a : b);
+        final resized = images.map((image) {
+          if (image.height != maxHeight) {
+            final newWidth = (image.width * maxHeight / image.height).round();
+            return img.copyResize(image, width: newWidth, height: maxHeight);
+          }
+          return image;
+        }).toList();
+        final totalWidth = resized.fold<int>(0, (sum, i) => sum + i.width);
+        result = img.Image(width: totalWidth, height: maxHeight);
+        var xOffset = 0;
+        for (final image in resized) {
+          img.compositeImage(result, image, dstX: xOffset, dstY: 0);
+          xOffset += image.width;
+        }
+        break;
+
+      case 'concat_vertical':
+        if (images.length < 2) {
+          throw ArgumentError('concat_vertical requires at least 2 input images');
+        }
+        // Find max width, resize all to match
+        final maxWidth = images.map((i) => i.width).reduce((a, b) => a > b ? a : b);
+        final resized = images.map((image) {
+          if (image.width != maxWidth) {
+            final newHeight = (image.height * maxWidth / image.width).round();
+            return img.copyResize(image, width: maxWidth, height: newHeight);
+          }
+          return image;
+        }).toList();
+        final totalHeight = resized.fold<int>(0, (sum, i) => sum + i.height);
+        result = img.Image(width: maxWidth, height: totalHeight);
+        var yOffset = 0;
+        for (final image in resized) {
+          img.compositeImage(result, image, dstX: 0, dstY: yOffset);
+          yOffset += image.height;
+        }
+        break;
+
+      case 'overlay':
+        if (images.length < 2) {
+          throw ArgumentError('overlay requires at least 2 input images');
+        }
+        final x = params['x'] as int? ?? 0;
+        final y = params['y'] as int? ?? 0;
+        result = img.Image.from(images[0]);
+        img.compositeImage(result, images[1], dstX: x, dstY: y);
+        break;
+
+      case 'resize':
+        if (images.isEmpty) {
+          throw ArgumentError('resize requires at least 1 input image');
+        }
+        final width = params['width'] as int?;
+        final height = params['height'] as int?;
+        if (width == null && height == null) {
+          throw ArgumentError('resize requires width or height in params');
+        }
+        result = img.copyResize(
+          images[0],
+          width: width ?? -1,
+          height: height ?? -1,
+        );
+        break;
+
+      case 'adjust':
+        if (images.isEmpty) {
+          throw ArgumentError('adjust requires at least 1 input image');
+        }
+        result = img.adjustColor(
+          images[0],
+          brightness: (params['brightness'] as num?)?.toDouble(),
+          contrast: (params['contrast'] as num?)?.toDouble(),
+          saturation: (params['saturation'] as num?)?.toDouble(),
+          hue: (params['hue'] as num?)?.toDouble(),
+          gamma: (params['gamma'] as num?)?.toDouble(),
+          exposure: (params['exposure'] as num?)?.toDouble(),
+        );
+        break;
+
+      case 'crop':
+        if (images.isEmpty) {
+          throw ArgumentError('crop requires at least 1 input image');
+        }
+        final cx = params['x'] as int? ?? 0;
+        final cy = params['y'] as int? ?? 0;
+        final cw = params['width'] as int?;
+        final ch = params['height'] as int?;
+        if (cw == null || ch == null) {
+          throw ArgumentError('crop requires width and height in params');
+        }
+        result = img.copyCrop(images[0], x: cx, y: cy, width: cw, height: ch);
+        break;
+
+      case 'grayscale':
+        if (images.isEmpty) {
+          throw ArgumentError('grayscale requires at least 1 input image');
+        }
+        result = img.grayscale(images[0]);
+        break;
+
+      case 'blur':
+        if (images.isEmpty) {
+          throw ArgumentError('blur requires at least 1 input image');
+        }
+        final radius = (params['radius'] as num?)?.toInt() ?? 5;
+        result = img.gaussianBlur(images[0], radius: radius);
+        break;
+
+      default:
+        throw ArgumentError('Unknown image_compose operation: $operation');
+    }
+
+    // Encode based on output extension
+    final outputExt = outputPath.contains('.')
+        ? outputPath.substring(outputPath.lastIndexOf('.')).toLowerCase()
+        : '.jpg';
+    List<int> encoded;
+    if (outputExt == '.png') {
+      encoded = img.encodePng(result);
+    } else {
+      encoded = img.encodeJpg(result, quality: 90);
+    }
+
+    // Ensure output directory exists
+    final outputFile = File(outputPath);
+    await outputFile.parent.create(recursive: true);
+    await outputFile.writeAsBytes(encoded);
+
+    return {
+      'success': true,
+      'output_path': outputPath,
+      'width': result.width,
+      'height': result.height,
+      'output_size_bytes': encoded.length,
+      'operation': operation,
+    };
+  }
+
+  /// List files in a device directory.
+  ///
+  /// Constrained to safe paths: app output, screenshots, camera, downloads.
+  Future<Map<String, dynamic>> _executeListFiles(
+    Map<String, dynamic> args,
+  ) async {
+    final directory = args['directory'] as String?;
+
+    if (directory == null) {
+      throw ArgumentError('Missing required parameter: directory');
+    }
+
+    String dirPath;
+    switch (directory) {
+      case 'output':
+        final appDir = await getApplicationDocumentsDirectory();
+        dirPath = '${appDir.path}/navixmind_output';
+        break;
+      case 'screenshots':
+        dirPath = '/storage/emulated/0/Pictures/Screenshots';
+        break;
+      case 'camera':
+        dirPath = '/storage/emulated/0/DCIM/Camera';
+        break;
+      case 'downloads':
+        dirPath = '/storage/emulated/0/Download';
+        break;
+      default:
+        throw ArgumentError(
+          'Invalid directory: $directory. '
+          'Allowed: output, screenshots, camera, downloads',
+        );
+    }
+
+    final dir = Directory(dirPath);
+    if (!await dir.exists()) {
+      return {
+        'success': true,
+        'directory': dirPath,
+        'files': <Map<String, dynamic>>[],
+        'file_count': 0,
+      };
+    }
+
+    final files = <Map<String, dynamic>>[];
+    await for (final entity in dir.list()) {
+      if (entity is File) {
+        final stat = await entity.stat();
+        final name = entity.path.substring(entity.path.lastIndexOf('/') + 1);
+        files.add({
+          'name': name,
+          'path': entity.path,
+          'size_bytes': stat.size,
+          'modified': stat.modified.toIso8601String(),
+        });
+      }
+    }
+
+    // Sort by modified date, newest first
+    files.sort((a, b) => (b['modified'] as String).compareTo(a['modified'] as String));
+
+    return {
+      'success': true,
+      'directory': dirPath,
+      'files': files,
+      'file_count': files.length,
     };
   }
 
