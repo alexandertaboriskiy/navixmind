@@ -142,6 +142,140 @@ void main() {
     });
   });
 
+  group('_SettingsTile Mentiora Tracing Key', () {
+    Widget createTestWidget({
+      required String subtitle,
+      Widget? trailing,
+    }) {
+      return MaterialApp(
+        theme: NavixTheme.darkTheme,
+        home: Scaffold(
+          body: _TestSettingsTile(
+            title: 'Mentiora Tracing Key',
+            subtitle: subtitle,
+            trailing: trailing,
+          ),
+        ),
+      );
+    }
+
+    testWidgets('displays Mentiora Tracing Key title', (tester) async {
+      await tester.pumpWidget(createTestWidget(subtitle: 'Optional'));
+
+      expect(find.text('Mentiora Tracing Key'), findsOneWidget);
+    });
+
+    testWidgets('shows Optional subtitle when no key is set', (tester) async {
+      await tester.pumpWidget(createTestWidget(subtitle: 'Optional'));
+
+      expect(find.text('Optional'), findsOneWidget);
+    });
+
+    testWidgets('shows Configured subtitle when key is set', (tester) async {
+      await tester.pumpWidget(createTestWidget(
+        subtitle: 'Configured',
+        trailing: Text(
+          NavixTheme.iconCheck,
+          style: TextStyle(
+            fontSize: 20,
+            color: NavixTheme.success,
+          ),
+        ),
+      ));
+
+      expect(find.text('Configured'), findsOneWidget);
+    });
+
+    testWidgets('shows checkmark trailing when key is configured', (tester) async {
+      await tester.pumpWidget(createTestWidget(
+        subtitle: 'Configured',
+        trailing: Text(
+          NavixTheme.iconCheck,
+          style: TextStyle(
+            fontSize: 20,
+            color: NavixTheme.success,
+          ),
+        ),
+      ));
+
+      expect(find.text(NavixTheme.iconCheck), findsOneWidget);
+    });
+
+    testWidgets('checkmark has success color when key is configured', (tester) async {
+      await tester.pumpWidget(createTestWidget(
+        subtitle: 'Configured',
+        trailing: Text(
+          NavixTheme.iconCheck,
+          style: TextStyle(
+            fontSize: 20,
+            color: NavixTheme.success,
+          ),
+        ),
+      ));
+
+      final checkText = tester.widget<Text>(find.text(NavixTheme.iconCheck));
+      expect(checkText.style?.color, equals(NavixTheme.success));
+    });
+
+    testWidgets('no trailing widget when key is not set', (tester) async {
+      await tester.pumpWidget(createTestWidget(subtitle: 'Optional'));
+
+      final listTile = tester.widget<ListTile>(find.byType(ListTile));
+      expect(listTile.trailing, isNull);
+    });
+
+    testWidgets('shows Loading subtitle during load', (tester) async {
+      await tester.pumpWidget(createTestWidget(subtitle: 'Loading...'));
+
+      expect(find.text('Loading...'), findsOneWidget);
+    });
+
+    testWidgets('tile is wrapped in Card', (tester) async {
+      await tester.pumpWidget(createTestWidget(subtitle: 'Optional'));
+
+      expect(find.byType(Card), findsOneWidget);
+      final card = find.byType(Card);
+      final listTile = find.descendant(of: card, matching: find.byType(ListTile));
+      expect(listTile, findsOneWidget);
+    });
+
+    testWidgets('tile has correct title and subtitle together', (tester) async {
+      await tester.pumpWidget(createTestWidget(subtitle: 'Optional'));
+
+      final listTile = tester.widget<ListTile>(find.byType(ListTile));
+      final titleWidget = listTile.title as Text;
+      final subtitleWidget = listTile.subtitle as Text;
+      expect(titleWidget.data, equals('Mentiora Tracing Key'));
+      expect(subtitleWidget.data, equals('Optional'));
+    });
+
+    testWidgets('configured state has all expected elements', (tester) async {
+      await tester.pumpWidget(createTestWidget(
+        subtitle: 'Configured',
+        trailing: Text(
+          NavixTheme.iconCheck,
+          style: TextStyle(
+            fontSize: 20,
+            color: NavixTheme.success,
+          ),
+        ),
+      ));
+
+      // Title, subtitle, and checkmark should all be present
+      expect(find.text('Mentiora Tracing Key'), findsOneWidget);
+      expect(find.text('Configured'), findsOneWidget);
+      expect(find.text(NavixTheme.iconCheck), findsOneWidget);
+    });
+
+    testWidgets('unconfigured state has no checkmark', (tester) async {
+      await tester.pumpWidget(createTestWidget(subtitle: 'Optional'));
+
+      expect(find.text('Mentiora Tracing Key'), findsOneWidget);
+      expect(find.text('Optional'), findsOneWidget);
+      expect(find.text(NavixTheme.iconCheck), findsNothing);
+    });
+  });
+
   group('_SettingsTile System Prompt subtitle', () {
     Widget createTestWidget({
       required String title,

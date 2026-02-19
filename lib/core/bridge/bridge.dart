@@ -252,6 +252,20 @@ class PythonBridge {
     await _callPython(request);
   }
 
+  /// Set Mentiora tracing API key in Python runtime.
+  ///
+  /// Should be called when user configures the key in Settings.
+  Future<void> setMentioraApiKey(String apiKey) async {
+    if (_status != PythonStatus.ready) return;
+
+    final request = JsonRpcRequest(
+      method: 'set_mentiora_key',
+      params: {'api_key': apiKey},
+    );
+
+    await _callPython(request);
+  }
+
   /// Send fresh access token to Python for Google API calls.
   ///
   /// Should be called:

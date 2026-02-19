@@ -7,6 +7,7 @@ tool execution, and response generation using a proper ReAct pattern.
 
 import json
 import os
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -15,6 +16,7 @@ from .bridge import get_bridge, ToolError
 from .session import get_session, apply_delta
 from .crash_logger import CrashLogger
 from .tools import execute_tool, TOOLS_SCHEMA, OFFLINE_TOOLS_SCHEMA
+from .tracing import TracingManager
 
 
 # Constants (defaults, overridden by settings via context)
@@ -88,6 +90,11 @@ def set_access_token(token: str) -> None:
     global _access_token
     _access_token = token
     CrashLogger.log_info("Google access token set")
+
+
+def set_mentiora_key(key: str) -> None:
+    """Set the Mentiora tracing API key."""
+    TracingManager.instance().set_api_key(key)
 
 
 # System prompt
@@ -800,6 +807,14 @@ def handle_request(request_json: str) -> str:
                 "result": {"success": True}
             })
 
+        elif method == 'set_mentiora_key':
+            set_mentiora_key(params.get('api_key', ''))
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {"success": True}
+            })
+
         elif method == 'self_improve':
             result = self_improve(
                 conversation=params.get('conversation', []),
@@ -947,6 +962,15 @@ def process_query(
     final_response = None
     created_files = []  # Track output files for session context
 
+    # Start tracing (no-op for offline models or when tracing disabled)
+    if is_offline:
+        from .tracing import _NullQueryTrace
+        query_trace = _NullQueryTrace()
+    else:
+        query_trace = TracingManager.instance().start_trace(
+            conversation_id=str(context.get('conversation_id', '')),
+        )
+
     while iteration < max_iterations:
         iteration += 1
         bridge.log(f"Thinking... (step {iteration}/{max_iterations})", progress=iteration / max_iterations * 0.5)
@@ -957,26 +981,46 @@ def process_query(
             else:
                 bridge.log("Calling Claude API...", level="info")
             tools_schema = OFFLINE_TOOLS_SCHEMA if is_offline else TOOLS_SCHEMA
+            llm_start = time.time()
             response = client.create_message(
                 messages=messages,
                 system=system_prompt,
                 tools=tools_schema,
                 max_tokens=max_tokens,
             )
+            llm_duration_ms = int((time.time() - llm_start) * 1000)
             if is_offline:
                 bridge.log("Got response from model", level="info")
             else:
                 bridge.log("Got response from Claude", level="info")
         except APIError as e:
+            llm_duration_ms = int((time.time() - llm_start) * 1000)
             bridge.log(f"API error: {e}", level="error")
+            query_trace.add_llm_span(
+                model=client.model,
+                messages=messages[-1:],
+                response=None,
+                duration_ms=llm_duration_ms,
+                error=str(e),
+            )
             error_msg = _get_user_friendly_error(e)
             session.add_message("assistant", error_msg)
+            query_trace.finish(error=str(e))
             return {"content": error_msg, "error": True}
         except Exception as e:
+            llm_duration_ms = int((time.time() - llm_start) * 1000)
             CrashLogger.log_error("process_query", e)
             bridge.log(f"Exception: {str(e)}", level="error")
+            query_trace.add_llm_span(
+                model=client.model,
+                messages=messages[-1:],
+                response=None,
+                duration_ms=llm_duration_ms,
+                error=str(e),
+            )
             error_msg = f"An unexpected error occurred: {e}"
             session.add_message("assistant", error_msg)
+            query_trace.finish(error=str(e))
             return {
                 "content": error_msg,
                 "error": True
@@ -1002,6 +1046,16 @@ def process_query(
                 context=context
             )
 
+        # Trace the LLM call
+        query_trace.add_llm_span(
+            model=client.model,
+            messages=messages[-1:],
+            response=response.get('content'),
+            input_tokens=usage.get('input_tokens', 0),
+            output_tokens=usage.get('output_tokens', 0),
+            duration_ms=llm_duration_ms,
+        )
+
         # Log any text content (Claude's thinking before tool use)
         thinking_text = _extract_text_content(content_blocks)
         if thinking_text and stop_reason == 'tool_use':
@@ -1018,6 +1072,7 @@ def process_query(
             # assistant text — it confuses the model into thinking work is already done.
             session.add_message("assistant", final_response)
             bridge.log("Done!", progress=1.0)
+            query_trace.finish(final_response=final_response)
             result = {"content": final_response}
             if created_files:
                 result["created_files"] = created_files
@@ -1059,6 +1114,7 @@ def process_query(
                             if code:
                                 bridge.log(f"Code:\n```python\n{code}\n```", level="info")
 
+                        tool_start = time.time()
                         result = execute_tool(tool_name, tool_input, context)
                         # Truncate large results
                         result_str = json.dumps(result) if isinstance(result, dict) else str(result)
@@ -1093,6 +1149,14 @@ def process_query(
                                 result['output_paths'] = verified_paths
                                 result['file_count'] = len(verified_paths)
 
+                        tool_duration_ms = int((time.time() - tool_start) * 1000)
+                        query_trace.add_tool_span(
+                            tool_name=tool_name,
+                            tool_input=tool_input,
+                            tool_output=result,
+                            duration_ms=tool_duration_ms,
+                        )
+
                         # Log result summary
                         result_summary = _summarize_tool_result(tool_name, result_str)
                         bridge.log(f"Result: {result_summary}", level="info")
@@ -1106,7 +1170,15 @@ def process_query(
                             "content": result_str
                         })
                     except ToolError as e:
+                        tool_duration_ms = int((time.time() - tool_start) * 1000)
                         bridge.log(f"Tool error: {e}", level="warn")
+                        query_trace.add_tool_span(
+                            tool_name=tool_name,
+                            tool_input=tool_input,
+                            tool_output=None,
+                            duration_ms=tool_duration_ms,
+                            error=str(e),
+                        )
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": tool_id,
@@ -1114,8 +1186,16 @@ def process_query(
                             "content": str(e)
                         })
                     except Exception as e:
+                        tool_duration_ms = int((time.time() - tool_start) * 1000)
                         CrashLogger.log_error(f"tool_{tool_name}", e)
                         bridge.log(f"Tool exception: {str(e)}", level="error")
+                        query_trace.add_tool_span(
+                            tool_name=tool_name,
+                            tool_input=tool_input,
+                            tool_output=None,
+                            duration_ms=tool_duration_ms,
+                            error=str(e),
+                        )
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": tool_id,
@@ -1143,6 +1223,7 @@ def process_query(
         partial = _extract_text_content(content_blocks)
         if partial:
             session.add_message("assistant", partial)
+            query_trace.finish(final_response=partial)
             return {"content": partial}
         break
 
@@ -1150,6 +1231,7 @@ def process_query(
     summary = _summarize_progress(messages, tool_call_count)
     max_iter_msg = f"I've reached my step limit after {iteration} iterations and {tool_call_count} tool calls. {summary}"
     session.add_message("assistant", max_iter_msg)
+    query_trace.finish(final_response=max_iter_msg)
     return {"content": max_iter_msg}
 
 

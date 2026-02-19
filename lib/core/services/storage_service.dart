@@ -29,6 +29,7 @@ class StorageService {
   static const _keyLegalAccepted = 'legal_accepted';
   static const _keySelfImproveEnabled = 'self_improve_enabled';
   static const _keyOfflineModelStates = 'offline_model_states';
+  static const _keyMentioraApiKey = 'mentiora_api_key';
 
   /// Store Claude API key securely
   Future<void> setApiKey(String key) async {
@@ -226,6 +227,28 @@ class StorageService {
   /// Get stored offline model states JSON, or null if not set.
   Future<String?> getOfflineModelStates() async {
     return await _storage.read(key: _keyOfflineModelStates);
+  }
+
+  // Mentiora tracing key methods
+
+  /// Store Mentiora API key securely
+  Future<void> setMentioraApiKey(String key) async {
+    await _storage.write(key: _keyMentioraApiKey, value: key);
+  }
+
+  /// Get stored Mentiora API key
+  Future<String?> getMentioraApiKey() async {
+    return await _storage.read(key: _keyMentioraApiKey);
+  }
+
+  /// Check if Mentiora API key is stored
+  Future<bool> hasMentioraApiKey() async {
+    return await _storage.containsKey(key: _keyMentioraApiKey);
+  }
+
+  /// Delete Mentiora API key
+  Future<void> deleteMentioraApiKey() async {
+    await _storage.delete(key: _keyMentioraApiKey);
   }
 
   // System prompt methods (file-based — prompts can be large)

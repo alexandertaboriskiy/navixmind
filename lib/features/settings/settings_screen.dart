@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../app/theme.dart';
+import '../../core/bridge/bridge.dart';
 import '../../core/constants/defaults.dart';
 import '../../core/models/model_registry.dart';
 import '../../core/services/analytics_service.dart';
@@ -275,6 +276,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _maxTokens = 16384;
   bool _hasCustomPrompt = false;
   bool _selfImproveEnabled = false;
+  bool _hasMentioraKey = false;
   Map<String, OfflineModelState> _offlineModelStates = {};
   StreamSubscription<Map<String, OfflineModelState>>? _offlineStateSubscription;
   ModelLoadState _modelLoadState = ModelLoadState.unloaded;
@@ -337,6 +339,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final maxTokens = await StorageService.instance.getMaxTokens();
     final customPrompt = await StorageService.instance.getSystemPrompt();
     final selfImproveEnabled = await StorageService.instance.isSelfImproveEnabled();
+    final hasMentioraKey = await StorageService.instance.hasMentioraApiKey();
 
     setState(() {
       _isLoading = false;
@@ -354,6 +357,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _maxTokens = maxTokens;
       _hasCustomPrompt = customPrompt != null;
       _selfImproveEnabled = selfImproveEnabled;
+      _hasMentioraKey = hasMentioraKey;
     });
   }
 
@@ -402,6 +406,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('API key saved')),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _setMentioraKey() async {
+    final controller = TextEditingController();
+    final result = await showDialog<String?>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Mentiora Tracing Key'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'Enter key (leave empty to remove)',
+          ),
+          obscureText: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      if (result.isEmpty) {
+        await StorageService.instance.deleteMentioraApiKey();
+        setState(() {
+          _hasMentioraKey = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Mentiora key removed')),
+          );
+        }
+      } else {
+        await StorageService.instance.setMentioraApiKey(result);
+        // Send to Python immediately so tracing activates without restart
+        try {
+          await PythonBridge.instance.setMentioraApiKey(result);
+        } catch (e) {
+          debugPrint('Failed to send Mentiora key to Python: $e');
+        }
+        setState(() {
+          _hasMentioraKey = true;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Mentiora key saved')),
           );
         }
       }
@@ -488,6 +549,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       )
                     : null),
             onTap: _isLoading ? null : _setApiKey,
+          ),
+          _SettingsTile(
+            title: 'Mentiora Tracing Key',
+            subtitle: _isLoading
+                ? 'Loading...'
+                : (_hasMentioraKey ? 'Configured' : 'Optional'),
+            trailing: _isLoading
+                ? null
+                : (_hasMentioraKey
+                    ? Text(
+                        NavixTheme.iconCheck,
+                        style: TextStyle(
+                          fontSize: 20,
+                          color: NavixTheme.success,
+                        ),
+                      )
+                    : null),
+            onTap: _isLoading ? null : _setMentioraKey,
           ),
 
           // Model Selection

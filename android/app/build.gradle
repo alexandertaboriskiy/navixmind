@@ -95,6 +95,8 @@ android {
                 // Utilities
                 install "python-dateutil>=2.8.0"
                 install "urllib3>=2.0.0"
+
+                // Tracing (uses requests already listed above)
             }
         }
     }

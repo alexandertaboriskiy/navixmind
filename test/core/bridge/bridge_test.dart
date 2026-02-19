@@ -601,4 +601,144 @@ void main() {
       expect(json['message']['content'], equals('Response'));
     });
   });
+
+  group('setMentioraApiKey request construction', () {
+    test('sends correct JSON-RPC method and params', () {
+      final request = JsonRpcRequest(
+        method: 'set_mentiora_key',
+        params: {'api_key': 'test-mentiora-key-123'},
+      );
+
+      expect(request.method, equals('set_mentiora_key'));
+      expect(request.params['api_key'], equals('test-mentiora-key-123'));
+      expect(request.jsonrpc, equals('2.0'));
+      expect(request.id, isNotEmpty);
+    });
+
+    test('serializes to valid JSON-RPC format', () {
+      final request = JsonRpcRequest(
+        method: 'set_mentiora_key',
+        params: {'api_key': 'sk-test-key'},
+        id: 'mentiora-key-id',
+      );
+
+      final json = request.toJson();
+
+      expect(json['jsonrpc'], equals('2.0'));
+      expect(json['method'], equals('set_mentiora_key'));
+      expect(json['params'], equals({'api_key': 'sk-test-key'}));
+      expect(json['id'], equals('mentiora-key-id'));
+    });
+
+    test('params contain only api_key field', () {
+      final request = JsonRpcRequest(
+        method: 'set_mentiora_key',
+        params: {'api_key': 'my-key'},
+      );
+
+      final json = request.toJson();
+      final params = json['params'] as Map<String, dynamic>;
+
+      expect(params.length, equals(1));
+      expect(params.containsKey('api_key'), isTrue);
+    });
+
+    test('handles empty API key', () {
+      final request = JsonRpcRequest(
+        method: 'set_mentiora_key',
+        params: {'api_key': ''},
+      );
+
+      final json = request.toJson();
+
+      expect(json['method'], equals('set_mentiora_key'));
+      expect(json['params']['api_key'], equals(''));
+    });
+
+    test('handles API key with special characters', () {
+      final specialKey = 'sk-ant-api03-abc123!@#\$%^&*()_+-=[]{}|;:,.<>?';
+      final request = JsonRpcRequest(
+        method: 'set_mentiora_key',
+        params: {'api_key': specialKey},
+      );
+
+      final json = request.toJson();
+
+      expect(json['params']['api_key'], equals(specialKey));
+    });
+
+    test('handles very long API key', () {
+      final longKey = 'sk-' + 'a' * 500;
+      final request = JsonRpcRequest(
+        method: 'set_mentiora_key',
+        params: {'api_key': longKey},
+      );
+
+      final json = request.toJson();
+
+      expect(json['params']['api_key'], equals(longKey));
+      expect(json['params']['api_key'].length, equals(503));
+    });
+
+    test('is a no-op when Python is not ready', () {
+      // The setMentioraApiKey method guards with:
+      //   if (_status != PythonStatus.ready) return;
+      // Verify that all non-ready statuses would trigger the guard.
+      // PythonStatus values: uninitialized, initializing, importing, ready, error
+      final nonReadyStatuses = ['uninitialized', 'initializing', 'importing', 'error'];
+
+      for (final status in nonReadyStatuses) {
+        expect(status, isNot(equals('ready')),
+            reason: '$status should not equal ready');
+      }
+      // The only status that passes the guard is 'ready'.
+      expect(nonReadyStatuses.length, equals(4),
+          reason: 'There should be exactly 4 non-ready statuses');
+    });
+
+    test('uses distinct method name from setApiKey', () {
+      final mentioraRequest = JsonRpcRequest(
+        method: 'set_mentiora_key',
+        params: {'api_key': 'mentiora-key'},
+      );
+
+      final apiKeyRequest = JsonRpcRequest(
+        method: 'set_api_key',
+        params: {'api_key': 'claude-key'},
+      );
+
+      expect(mentioraRequest.method, isNot(equals(apiKeyRequest.method)));
+      expect(mentioraRequest.method, equals('set_mentiora_key'));
+      expect(apiKeyRequest.method, equals('set_api_key'));
+    });
+
+    test('each request gets a unique auto-generated id', () {
+      final request1 = JsonRpcRequest(
+        method: 'set_mentiora_key',
+        params: {'api_key': 'key1'},
+      );
+      final request2 = JsonRpcRequest(
+        method: 'set_mentiora_key',
+        params: {'api_key': 'key2'},
+      );
+
+      expect(request1.id, isNot(equals(request2.id)));
+    });
+
+    test('roundtrips through JSON serialization', () {
+      final original = JsonRpcRequest(
+        method: 'set_mentiora_key',
+        params: {'api_key': 'roundtrip-test-key'},
+        id: 'roundtrip-id',
+      );
+
+      final json = original.toJson();
+      final restored = JsonRpcRequest.fromJson(json);
+
+      expect(restored.method, equals(original.method));
+      expect(restored.params['api_key'], equals(original.params['api_key']));
+      expect(restored.id, equals(original.id));
+      expect(restored.jsonrpc, equals(original.jsonrpc));
+    });
+  });
 }

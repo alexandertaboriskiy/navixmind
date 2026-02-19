@@ -148,6 +148,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         debugPrint('Failed to send API key to Python: $e');
       }
     }
+
+    // Also send Mentiora tracing key if configured
+    final mentioraKey = await StorageService.instance.getMentioraApiKey();
+    if (mentioraKey != null) {
+      try {
+        await PythonBridge.instance.setMentioraApiKey(mentioraKey);
+      } catch (e) {
+        debugPrint('Failed to send Mentiora key to Python: $e');
+      }
+    }
   }
 
   Future<void> _handleApiKeyInput(String input) async {
