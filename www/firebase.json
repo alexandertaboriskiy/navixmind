@@ -8,6 +8,15 @@
     ],
     "headers": [
       {
+        "source": "preso-images/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
         "source": "**/*.@(ico|png|jpg|jpeg|gif|webp|svg)",
         "headers": [
           {
